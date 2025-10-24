@@ -19,6 +19,17 @@ body {
 header {
   padding: 1rem 1.25rem;
   border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.eng-flag {
+  color: var(--danger);
+  font-weight: 800;
+  font-size: 1.15rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 .brand {
   display: flex;
@@ -32,7 +43,7 @@ header {
 }
 .brand h1 {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: 1.5rem;
   line-height: 1.2;
 }
 main {
@@ -189,3 +200,21 @@ button.secondary {
     grid-template-columns: 1fr;
   }
 }
+
+/* Footer (static) */
+.site-footer {
+  border-top: 1px solid var(--line);
+  background: transparent;
+  padding: 0.5rem 0;
+}
+.site-footer .footer-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  align-items: center;
+  padding: 0 1rem;
+}
+.site-footer .small { font-size: 0.9rem; }
+.site-footer .muted { color: var(--muted); }
