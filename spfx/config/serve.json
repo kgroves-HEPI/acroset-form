@@ -1,0 +1,10 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/core-build/serve.schema.json",
+  "port": 4321,
+  "https": true,
+  "serveConfigurations": {
+    "default": { "pageUrl": "https://localhost:4321/temp/workbench.html" },
+    "tenant":  { "pageUrl": "https://{tenantDomain}/_layouts/workbench.aspx" }
+  }
+}
+

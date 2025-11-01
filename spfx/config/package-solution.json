@@ -1,0 +1,40 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx-build/package-solution.schema.json",
+  "solution": {
+    "name": "acroset-spfx-client-side-solution",
+    "id": "9ed6dd6f-448a-4076-a90d-4a1d8de247e1",
+    "version": "1.0.0.0",
+    "includeClientSideAssets": true,
+    "skipFeatureDeployment": true,
+    "isDomainIsolated": false,
+    "developer": {
+      "name": "",
+      "websiteUrl": "",
+      "privacyUrl": "",
+      "termsOfUseUrl": "",
+      "mpnId": "Undefined-1.20.0"
+    },
+    "metadata": {
+      "shortDescription": {
+        "default": "acroset-spfx description"
+      },
+      "longDescription": {
+        "default": "acroset-spfx description"
+      },
+      "screenshotPaths": [],
+      "videoUrl": "",
+      "categories": []
+    },
+    "features": [
+      {
+        "title": "acroset-spfx Feature",
+        "description": "The feature that activates elements of the acroset-spfx solution.",
+        "id": "b350cb63-ffb3-4170-9fcf-b8eb1209b44b",
+        "version": "1.0.0.0"
+      }
+    ]
+  },
+  "paths": {
+    "zippedPackage": "solution/acroset-spfx.sppkg"
+  }
+}

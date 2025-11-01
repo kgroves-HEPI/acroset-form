@@ -1,0 +1,18 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx-build/config.2.0.schema.json",
+  "version": "2.0",
+  "bundles": {
+    "acroset-form-web-part": {
+      "components": [
+        {
+          "entrypoint": "./lib/webparts/acrosetForm/AcrosetFormWebPart.js",
+          "manifest": "./src/webparts/acrosetForm/AcrosetFormWebPart.manifest.json"
+        }
+      ]
+    }
+  },
+  "externals": {},
+  "localizedResources": {
+    "AcrosetFormWebPartStrings": "lib/webparts/acrosetForm/loc/{locale}.js"
+  }
+}
