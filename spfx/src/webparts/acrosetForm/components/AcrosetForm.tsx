@@ -1,25 +1,54 @@
 import * as React from 'react';
 import styles from './AcrosetForm.module.scss';
 
-export default function AcrosetForm() {
-  const [form, setForm] = React.useState({
+type Position = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+
+type FormState = {
+  date: string;
+  mechanic: string;
+  wo: string;
+  location: string;
+  model: string;
+  retainer: string;
+} & {
+  [K in `shim_${Position}`]: string;
+} & {
+  [K in `meas_${Position}`]: string;
+};
+
+export default function AcrosetForm(): JSX.Element {
+  const [form, setForm] = React.useState<FormState>({
     date: '',
     mechanic: '',
     wo: '',
     location: '',
     model: '',
-    retainer: ''
+    retainer: '',
+    shim_1: '', shim_2: '', shim_3: '', shim_4: '',
+    shim_5: '', shim_6: '', shim_7: '', shim_8: '',
+    meas_1: '', meas_2: '', meas_3: '', meas_4: '',
+    meas_5: '', meas_6: '', meas_7: '', meas_8: '',
   });
 
-  const onChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+  const onChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>): void => {
     const { name, value } = e.target;
-    setForm(f => ({ ...f, [name]: value }));
+    setForm((prev: FormState) => ({ ...prev, [name]: value } as FormState));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent): void => {
     e.preventDefault();
     console.log('Form payload:', form);
     alert('Form captured locally. Check console for payload.');
+  };
+
+  const positions: Position[] = [1,2,3,4,5,6,7,8];
+
+  const delta = (s?: string, m?: string): string => {
+    const sv = parseFloat(s ?? '');
+    const mv = parseFloat(m ?? '');
+    if (Number.isNaN(sv) || Number.isNaN(mv)) return '';
+    const d = +(sv - mv).toFixed(3);
+    return d.toFixed(3);
   };
 
   return (
@@ -107,6 +136,47 @@ export default function AcrosetForm() {
             onChange={onChange}
           />
         </label>
+
+        {/* --- Measurements --- */}
+        <h3 className={styles.section}>Measurements</h3>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th>Pos</th>
+              <th>Shim Pack (in)</th>
+              <th>Measured (in)</th>
+              <th>Δ Error (in)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {positions.map((pos) => (
+              <tr key={pos}>
+                <td>{pos}</td>
+                <td>
+                  <input
+                    className={styles.input}
+                    name={`shim_${pos}`}
+                    value={form[`shim_${pos}`]}
+                    onChange={onChange}
+                    placeholder="e.g., 1.250"
+                  />
+                </td>
+                <td>
+                  <input
+                    className={styles.input}
+                    name={`meas_${pos}`}
+                    value={form[`meas_${pos}`]}
+                    onChange={onChange}
+                    placeholder="e.g., 1.238"
+                  />
+                </td>
+                <td className={styles.deltaCell}>
+                  {delta(form[`shim_${pos}`], form[`meas_${pos}`])}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
 
         <button className={styles.button} type="submit">Save (local)</button>
       </form>
