@@ -95,6 +95,7 @@ const onBlurNumber = (e: React.FocusEvent<HTMLInputElement>): void => {
       <h2 className={styles.h2}>Acroset — Request Form</h2>
 
       <form onSubmit={handleSubmit} className={styles.form}>
+        <div className={styles.gridFormRow}>
         <label className={styles.label}>
           Date
           <input
@@ -161,7 +162,7 @@ const onBlurNumber = (e: React.FocusEvent<HTMLInputElement>): void => {
             <option value="930E Front">930E Front</option>
           </select>
         </label>
-
+        
         <label className={styles.label}>
           Measured Retainer Thickness (in)
           <input
@@ -177,7 +178,7 @@ const onBlurNumber = (e: React.FocusEvent<HTMLInputElement>): void => {
             onBlur={onBlurNumber}
           />
         </label>
-
+        </div>
         {/* --- Measurements --- */}
         <h3 className={styles.section}>Measurements</h3>
         <div className={styles.tableWrapper}>
