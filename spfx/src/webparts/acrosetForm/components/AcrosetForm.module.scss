@@ -134,3 +134,17 @@
 .deltaCell {
   font-variant-numeric: tabular-nums;
 }
+
+.status {
+  margin-top: 12px;
+  font-weight: 500;
+  color: #b91c1c; /* red */
+}
+
+.results {
+  margin-top: 24px;
+  padding: 16px;
+  background: #f9fafb;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+}
