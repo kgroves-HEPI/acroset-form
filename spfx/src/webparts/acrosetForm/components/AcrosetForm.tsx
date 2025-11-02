@@ -3,6 +3,18 @@ import styles from './AcrosetForm.module.scss';
 
 type Position = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 
+const TORQUE_BY_POSITION: Record<Position, number> = {
+  1: 0,
+  2: 20,
+  3: 40,
+  4: 60,
+  5: 80,
+  6: 100,
+  7: 120,
+  8: 140,
+};
+
+const positions: Position[] = [1,2,3,4,5,6,7,8];
 type FormState = {
   date: string;
   mechanic: string;
@@ -41,7 +53,7 @@ export default function AcrosetForm(): JSX.Element {
     alert('Form captured locally. Check console for payload.');
   };
 
-  const positions: Position[] = [1,2,3,4,5,6,7,8];
+
 
 
   return (
@@ -132,6 +144,7 @@ export default function AcrosetForm(): JSX.Element {
 
         {/* --- Measurements --- */}
         <h3 className={styles.section}>Measurements</h3>
+        <div className={styles.tableWrapper}>
         <table className={styles.table}>
           <thead>
             <tr>
@@ -140,7 +153,6 @@ export default function AcrosetForm(): JSX.Element {
                     <th colSpan={2}>Set 2 (in)</th>
                   </tr>
             <tr>
-              <th>Torque (ft-lbs)</th>
               <th>Meas. #1</th>
               <th>Meas. #2</th>
               <th>Meas. #1</th>
@@ -150,14 +162,14 @@ export default function AcrosetForm(): JSX.Element {
           <tbody>
             {positions.map((pos) => (
               <tr key={pos}>
-                <td>{pos}</td>
+                <td>{TORQUE_BY_POSITION[pos]}</td>
                 <td>
                   <input
                     className={styles.input}
                     name={`shim_${pos}`}
                     value={form[`shim_${pos}`]}
                     onChange={onChange}
-                    placeholder="e.g., 1.250"
+
                   />
                 </td>
                 <td>
@@ -166,7 +178,7 @@ export default function AcrosetForm(): JSX.Element {
                     name={`meas_${pos}`}
                     value={form[`meas_${pos}`]}
                     onChange={onChange}
-                    placeholder="e.g., 1.238"
+
                   />
                 </td>
                 <td>
@@ -175,14 +187,23 @@ export default function AcrosetForm(): JSX.Element {
                     name={`meas_${pos}`}
                     value={form[`meas_${pos}`]}
                     onChange={onChange}
-                    placeholder="e.g., 1.238"
+
+                  />
+                </td>
+                <td>
+                  <input
+                    className={styles.input}
+                    name={`meas_${pos}`}
+                    value={form[`meas_${pos}`]}
+                    onChange={onChange}
+
                   />
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
-
+</div>
         <button className={styles.button} type="submit">Save (local)</button>
       </form>
     </div>

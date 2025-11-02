@@ -1,20 +1,48 @@
+:global(.CanvasSection),
+:global(.CanvasZone) {
+  max-width: 100% !important;
+}
+
 .card { background:#fff; border-radius:12px; padding:20px; box-shadow:0 2px 10px rgba(0,0,0,.06); }
 .h2 { margin:0 0 16px; font-weight:600; }
-.form { display:grid; gap:12px; max-width:560px; }
+.form { display:grid; padding: clamp(12px, 2vw, 32px); box-sizing: border-box; width:100%; }
 .label { display:grid; gap:6px; font-weight:500; }
 .input { border:1px solid #d0d7de; border-radius:8px; padding:10px 12px; font-size:14px; }
 .button { border:0; border-radius:10px; padding:10px 14px; cursor:pointer; font-weight:600; }
 .section { margin: 18px 0 8px; font-weight: 600; }
+
+.table th { background: #f8fafc; font-weight: 600; }
+.deltaCell { font-variant-numeric: tabular-nums; }
+
+.tableWrapper {
+  width: 100%;
+  overflow-x: auto;              /* horizontal scroll only if needed */
+  -webkit-overflow-scrolling: touch;
+  padding: clamp(12px, 2vw, 32px);
+  box-sizing: border-box;
+}
+
+/* Table must NOT have padding; let it fit the wrapper */
 .table {
   width: 100%;
   border-collapse: collapse;
-  margin-bottom: 12px;
+  margin: 0 0 12px 0;
+  table-layout: fixed;           /* prevents content from blowing out columns */
+  box-sizing: border-box;        /* safer sizing */
 }
+
 .table th, .table td {
   border: 1px solid #e5e7eb;
   padding: 4px 8px;
   text-align: center;
+  word-break: break-word;        /* wrap long text if any */
 }
-.table th { background: #f8fafc; font-weight: 600; }
-.deltaCell { font-variant-numeric: tabular-nums; }
 
+.table th { background: #f8fafc; font-weight: 600; }
+
+/* Make inputs fit their cells */
+.table input {
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;                  /* allow shrinking inside fixed layout */
+}
