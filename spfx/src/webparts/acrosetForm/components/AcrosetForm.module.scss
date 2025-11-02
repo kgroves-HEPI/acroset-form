@@ -35,7 +35,7 @@
   border-radius: 8px;
   padding: 10px 12px;
   font-size: 14px;
-
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
   /* 🔽 Hide stepper arrows for numeric inputs (cross-browser) */
 
   /* Chrome, Safari, Edge, Opera */
@@ -76,22 +76,47 @@
 .table {
   width: 100%;
   border-collapse: collapse;
-  margin: 0 0 12px 0;
-  table-layout: fixed;
-  box-sizing: border-box;
+  background: #fff;
+
+  /* 🔁 Match .input styles */
+  border: 1px solid #d0d7de;                    /* match input */
+  border-radius: 8px;                           /* same radius */
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);     /* same depth */
+  overflow: hidden;                             /* for rounded clipping */
 }
 
-.table th,
-.table td {
-  border: 1px solid #e5e7eb;
-  padding: 4px 8px;
+/* Headers - optional background for clarity */
+.table th {
+  background: #f8fafc;
+  font-weight: 600;
+  padding: 10px 12px;
   text-align: center;
-  word-break: break-word;
+}
+
+/* Cells */
+.table td {
+  padding: 10px 12px;
+  text-align: center;
+  border-bottom: 1px solid #e5e7eb;  /* ✅ horizontal line */
+}
+
+/* Remove border from last row */
+.table tr:last-child td {
+  border-bottom: none;
 }
 
 .table th {
   background: #f8fafc;
   font-weight: 600;
+}
+
+/* Add vertical dividers between Torque / Set 1 / Set 2 */
+.table td:first-child {
+  border-right: 1px solid #e5e7eb; /* Right border after Torque */
+}
+
+.table td:nth-child(3) {
+  border-right: 1px solid #e5e7eb; /* Right border after Set 1 */
 }
 
 .table input {
