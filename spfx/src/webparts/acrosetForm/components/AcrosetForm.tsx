@@ -204,7 +204,7 @@ export default function AcrosetForm(): JSX.Element {
           </tbody>
         </table>
 </div>
-        <button className={styles.button} type="submit">Save (local)</button>
+        <button className={styles.button} type="submit">Submit</button>
       </form>
     </div>
   );

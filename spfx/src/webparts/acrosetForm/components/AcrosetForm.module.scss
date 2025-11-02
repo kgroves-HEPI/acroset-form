@@ -18,7 +18,7 @@
   width: 100%;
   overflow-x: auto;              /* horizontal scroll only if needed */
   -webkit-overflow-scrolling: touch;
-  padding: clamp(12px, 2vw, 32px);
+  padding: clamp(0px, 2vw, 32px);
   box-sizing: border-box;
 }
 
