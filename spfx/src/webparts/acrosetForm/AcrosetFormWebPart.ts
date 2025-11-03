@@ -12,6 +12,15 @@ import * as strings from 'AcrosetFormWebPartStrings';
 import AcrosetForm from './components/AcrosetForm';
 import { IAcrosetFormProps } from './components/IAcrosetFormProps';
 
+//import { SPFI, spfi } from '@pnp/sp';
+import { getSP } from '../../pnpjsConfig';
+
+import "@pnp/sp/webs";
+import "@pnp/sp/lists";
+import "@pnp/sp/items";
+
+
+
 export interface IAcrosetFormWebPartProps {
   description: string;
 }
@@ -21,26 +30,31 @@ export default class AcrosetFormWebPart extends BaseClientSideWebPart<IAcrosetFo
   private _isDarkTheme: boolean = false;
   private _environmentMessage: string = '';
 
-  public render(): void {
-    const element: React.ReactElement<IAcrosetFormProps> = React.createElement(
-      AcrosetForm,
-      {
-        description: this.properties.description,
-        isDarkTheme: this._isDarkTheme,
-        environmentMessage: this._environmentMessage,
-        hasTeamsContext: !!this.context.sdks.microsoftTeams,
-        userDisplayName: this.context.pageContext.user.displayName
-      }
-    );
+public render(): void {
+  const element: React.ReactElement<IAcrosetFormProps> = React.createElement(
+    AcrosetForm,
+    {
+      description: this.properties.description,
+      isDarkTheme: this._isDarkTheme,
+      environmentMessage: this._environmentMessage,
+      hasTeamsContext: !!this.context.sdks.microsoftTeams,
+      userDisplayName: this.context.pageContext.user.displayName,
+      context: this.context
+    }
+  );
 
-    ReactDom.render(element, this.domElement);
-  }
+  ReactDom.render(element, this.domElement); // ✅ this line was missing
+}
 
-  protected onInit(): Promise<void> {
+protected onInit(): Promise<void> {
+  return super.onInit().then(() => {
+    getSP(this.context); // ✅ this initializes your SPFI instance
     return this._getEnvironmentMessage().then(message => {
       this._environmentMessage = message;
     });
-  }
+  });
+}
+
 
 
 

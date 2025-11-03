@@ -4,7 +4,9 @@
   "https": true,
   "serveConfigurations": {
     "default": { "pageUrl": "https://localhost:4321/temp/workbench.html" },
-    "tenant":  { "pageUrl": "https://{tenantDomain}/_layouts/workbench.aspx" }
+    "home":  { "pageUrl": "https://{tenantDomain}/_layouts/workbench.aspx" },
+    "tenant":  { "pageUrl": "https://hepartsint.sharepoint.com/_layouts/15/workbench.aspx?debug=true&noredir=true&debugManifestsFile=https://localhost:4321/temp/manifests.js" }
+
   }
 }
 

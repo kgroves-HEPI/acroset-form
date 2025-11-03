@@ -93,7 +93,7 @@ export default function AcrosetForm(): JSX.Element {
     console.log("Form payload:", form);
     alert("Form captured locally. Check console for payload.");
   };
-  const handleCalculate = () => {
+  const handleCalculate = (): void => {
     const result = computeFromFormState(form);
 
     if (!result.ok) {
