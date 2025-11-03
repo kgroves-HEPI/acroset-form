@@ -63,6 +63,15 @@ export default function AcrosetForm(): JSX.Element {
     ...emptyDyn,
   });
 
+  // Check if all Set 1 measurements have values
+const set1Complete = React.useMemo(() => {
+  return positions.every(
+    (pos) =>
+      form[`meas_s1_1_${pos}`] !== "" &&
+      form[`meas_s1_2_${pos}`] !== ""
+  );
+}, [form]);
+
   const onChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ): void => {
@@ -255,6 +264,7 @@ export default function AcrosetForm(): JSX.Element {
                       value={form[`meas_s2_1_${pos}` as MeasKey]}
                       onChange={onChange}
                       onBlur={onBlurNumber}
+                      disabled={!set1Complete}
                     />
                   </td>
                   <td>
@@ -266,6 +276,7 @@ export default function AcrosetForm(): JSX.Element {
                       value={form[`meas_s2_2_${pos}` as MeasKey]}
                       onChange={onChange}
                       onBlur={onBlurNumber}
+                      disabled={!set1Complete}
                     />
                   </td>
                 </tr>
