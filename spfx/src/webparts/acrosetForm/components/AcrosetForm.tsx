@@ -72,6 +72,22 @@ const set1Complete = React.useMemo(() => {
   );
 }, [form]);
 
+const descendingValid = React.useMemo(() => {
+  const columns: MeasKey[][] = [
+    positions.map((pos) => `meas_s1_1_${pos}` as MeasKey),
+    positions.map((pos) => `meas_s1_2_${pos}` as MeasKey),
+    positions.map((pos) => `meas_s2_1_${pos}` as MeasKey),
+    positions.map((pos) => `meas_s2_2_${pos}` as MeasKey),
+  ];
+
+  return columns.every((col) => {
+    const nums = col
+      .map((key) => parseFloat(form[key]))
+      .filter((n) => !isNaN(n));
+    return isDescending(nums);
+  });
+}, [form]);
+
   const onChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ): void => {
@@ -96,6 +112,13 @@ const set1Complete = React.useMemo(() => {
       setForm((prev) => ({ ...prev, [name]: formatted }));
     }
   };
+
+  function isDescending(values: number[]): boolean {
+  for (let i = 1; i < values.length; i++) {
+    if (values[i] > values[i - 1]) return false;
+  }
+  return true;
+}
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>): void => {
     e.preventDefault();
@@ -289,6 +312,7 @@ const set1Complete = React.useMemo(() => {
           type="button"
           className={styles.button}
           onClick={handleCalculate}
+          disabled={!set1Complete || !descendingValid}
         >
           Calculate
         </button>
