@@ -63,31 +63,66 @@ export default function AcrosetForm(): JSX.Element {
     ...emptyDyn,
   });
 
-  // Check if all Set 1 measurements have values
-const set1Complete = React.useMemo(() => {
-  return positions.every(
-    (pos) =>
-      form[`meas_s1_1_${pos}`] !== "" &&
-      form[`meas_s1_2_${pos}`] !== ""
-  );
-}, [form]);
+  const set1Valid = React.useMemo(() => {
+    const averages: number[] = [];
 
-const descendingValid = React.useMemo(() => {
-  const columns: MeasKey[][] = [
-    positions.map((pos) => `meas_s1_1_${pos}` as MeasKey),
-    positions.map((pos) => `meas_s1_2_${pos}` as MeasKey),
-    positions.map((pos) => `meas_s2_1_${pos}` as MeasKey),
-    positions.map((pos) => `meas_s2_2_${pos}` as MeasKey),
-  ];
+    const allValid = positions.every((pos) => {
+      const v1 = parseFloat(form[`meas_s1_1_${pos}`]);
+      const v2 = parseFloat(form[`meas_s1_2_${pos}`]);
 
-  return columns.every((col) => {
-    const nums = col
-      .map((key) => parseFloat(form[key]))
-      .filter((n) => !isNaN(n));
-    return isDescending(nums);
-  });
-}, [form]);
+      if (isNaN(v1) || isNaN(v2)) return false;
 
+      if (!isWithinDeviation(v1, v2)) return false;
+
+      averages.push((v1 + v2) / 2);
+      return true;
+    });
+
+    return allValid && isDescending(averages);
+  }, [form]);
+
+  const set2Valid = React.useMemo(() => {
+    if (!set1Valid) return false;
+
+    const averages: number[] = [];
+
+    const allValid = positions.every((pos) => {
+      const v1 = parseFloat(form[`meas_s2_1_${pos}`]);
+      const v2 = parseFloat(form[`meas_s2_2_${pos}`]);
+
+      if (isNaN(v1) || isNaN(v2)) return false;
+
+      if (!isWithinDeviation(v1, v2)) return false;
+
+      averages.push((v1 + v2) / 2);
+      return true;
+    });
+
+    return allValid && isDescending(averages);
+  }, [form, set1Valid]);
+
+  const [set1Status, setSet1Status] = React.useState<string | null>(null);
+  const [set2Status, setSet2Status] = React.useState<string | null>(null);
+  const [set1Locked, setSet1Locked] = React.useState(false);
+  const [set2Locked, setSet2Locked] = React.useState(false);
+  const [set1Touched, setSet1Touched] = React.useState(false);
+  const [set2Touched, setSet2Touched] = React.useState(false);
+
+React.useEffect(() => {
+  if (set1Valid && set1Touched && !set1Locked) {
+    setSet1Status("Set 1 Validated");
+    setSet1Locked(true);
+  }
+}, [set1Valid, set1Touched, set1Locked]);
+
+
+  React.useEffect(() => {
+    if (set2Valid && set2Touched && !set2Locked) {
+      setSet2Status("Set 2 Validated");
+      setSet2Locked(true);
+    }
+  }, [set2Valid, set2Touched, set2Locked]);
+  
   const onChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ): void => {
@@ -111,14 +146,53 @@ const descendingValid = React.useMemo(() => {
       const formatted = Math.max(0, n).toFixed(3); // remove Math.max if negatives are allowed
       setForm((prev) => ({ ...prev, [name]: formatted }));
     }
-  };
 
-  function isDescending(values: number[]): boolean {
-  for (let i = 1; i < values.length; i++) {
-    if (values[i] > values[i - 1]) return false;
+     if (!set1Locked) {
+    const allSet1Blurred = positions.every(
+      (pos) =>
+        form[`meas_s1_1_${pos}`] !== "" &&
+        form[`meas_s1_2_${pos}`] !== ""
+    );
+    if (allSet1Blurred) {
+      setSet1Touched(true);
+    }
   }
-  return true;
-}
+
+  // Repeat if you also want to delay Set 2 locking:
+  if (!set2Locked && set1Locked) {
+    const allSet2Blurred = positions.every(
+      (pos) =>
+        form[`meas_s2_1_${pos}`] !== "" &&
+        form[`meas_s2_2_${pos}`] !== ""
+    );
+    if (allSet2Blurred) {
+      setSet2Touched(true);
+    }
+  }
+  };
+  function isDescending(averages: number[]): boolean {
+    for (let i = 1; i < averages.length; i++) {
+      if (averages[i] > averages[i - 1]) return false;
+    }
+    return true;
+  }
+
+  function isWithinDeviation(v1: number, v2: number, maxDev = 0.01): boolean {
+    return Math.abs(v1 - v2) <= maxDev;
+  }
+
+  function getInputBorderClass(
+    value1: string,
+    value2: string,
+    locked: boolean
+  ): string {
+    const v1 = parseFloat(value1);
+    const v2 = parseFloat(value2);
+
+    if (locked) return ""; // already validated
+    if (isNaN(v1) || isNaN(v2)) return ""; // incomplete
+    return isWithinDeviation(v1, v2) ? styles.inputValid : styles.inputInvalid;
+  }
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>): void => {
     e.preventDefault();
@@ -256,50 +330,68 @@ const descendingValid = React.useMemo(() => {
                   {/* Set 1 */}
                   <td>
                     <input
-                      className={styles.input}
+                      className={`${styles.input} ${getInputBorderClass(
+                        form[`meas_s1_1_${pos}`],
+                        form[`meas_s1_2_${pos}`],
+                        set1Locked
+                      )}`}
                       type="number"
                       inputMode="decimal"
                       name={`meas_s1_1_${pos}`}
                       value={form[`meas_s1_1_${pos}` as MeasKey]}
                       onChange={onChange}
                       onBlur={onBlurNumber}
+                      disabled={set1Locked}
                     />
                   </td>
                   <td>
                     <input
-                      className={styles.input}
+                      className={`${styles.input} ${getInputBorderClass(
+                        form[`meas_s1_1_${pos}`],
+                        form[`meas_s1_2_${pos}`],
+                        set1Locked
+                      )}`}
                       type="number"
                       inputMode="decimal"
                       name={`meas_s1_2_${pos}`}
                       value={form[`meas_s1_2_${pos}` as MeasKey]}
                       onChange={onChange}
                       onBlur={onBlurNumber}
+                      disabled={set1Locked}
                     />
                   </td>
 
                   {/* Set 2 */}
                   <td>
                     <input
-                      className={styles.input}
+                      className={`${styles.input} ${getInputBorderClass(
+                        form[`meas_s2_1_${pos}`],
+                        form[`meas_s2_2_${pos}`],
+                        set2Locked
+                      )}`}
                       type="number"
                       inputMode="decimal"
                       name={`meas_s2_1_${pos}`}
                       value={form[`meas_s2_1_${pos}` as MeasKey]}
                       onChange={onChange}
                       onBlur={onBlurNumber}
-                      disabled={!set1Complete}
+                      disabled={!set1Locked || set2Locked}
                     />
                   </td>
                   <td>
                     <input
-                      className={styles.input}
+                      className={`${styles.input} ${getInputBorderClass(
+                        form[`meas_s2_1_${pos}`],
+                        form[`meas_s2_2_${pos}`],
+                        set2Locked
+                      )}`}
                       type="number"
                       inputMode="decimal"
                       name={`meas_s2_2_${pos}`}
                       value={form[`meas_s2_2_${pos}` as MeasKey]}
                       onChange={onChange}
                       onBlur={onBlurNumber}
-                      disabled={!set1Complete}
+                      disabled={!set1Locked || set2Locked}
                     />
                   </td>
                 </tr>
@@ -307,12 +399,15 @@ const descendingValid = React.useMemo(() => {
             </tbody>
           </table>
         </div>
-
+        <div>
+          {set1Status && <div className={styles.status}>{set1Status}</div>}
+          {set2Status && <div className={styles.status}>{set2Status}</div>}
+        </div>
         <button
           type="button"
           className={styles.button}
           onClick={handleCalculate}
-          disabled={!set1Complete || !descendingValid}
+          disabled={!set1Valid || !set2Valid}
         >
           Calculate
         </button>
