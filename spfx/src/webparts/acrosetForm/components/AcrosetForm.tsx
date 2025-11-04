@@ -105,24 +105,30 @@ export default function AcrosetForm(): JSX.Element {
   const [set2Status, setSet2Status] = React.useState<string | null>(null);
   const [set1Locked, setSet1Locked] = React.useState(false);
   const [set2Locked, setSet2Locked] = React.useState(false);
-  const [set1Touched, setSet1Touched] = React.useState(false);
-  const [set2Touched, setSet2Touched] = React.useState(false);
+
+  const [set1Blurred, setSet1Blurred] = React.useState<Record<Position, boolean>>(
+  () => positions.reduce((acc, pos) => ({ ...acc, [pos]: false }), {} as Record<Position, boolean>)
+);
+  const [set2Blurred, setSet2Blurred] = React.useState<Record<Position, boolean>>(
+  () => positions.reduce((acc, pos) => ({ ...acc, [pos]: false }), {} as Record<Position, boolean>)
+);
+
 
 React.useEffect(() => {
-  if (set1Valid && set1Touched && !set1Locked) {
-    setSet1Status("Set 1 Validated");
+  if (set1Valid && allPositionsBlurred(set1Blurred) && !set1Locked) {
+    setSet1Status("✅ Set 1 Inputs Validated");
     setSet1Locked(true);
   }
-}, [set1Valid, set1Touched, set1Locked]);
+}, [set1Valid, set1Blurred, set1Locked]);
 
 
   React.useEffect(() => {
-    if (set2Valid && set2Touched && !set2Locked) {
-      setSet2Status("Set 2 Validated");
+    if (set2Valid && allPositionsBlurred(set2Blurred) && !set2Locked) {
+      setSet2Status("✅ Set 2 Inputs Validated");
       setSet2Locked(true);
     }
-  }, [set2Valid, set2Touched, set2Locked]);
-  
+  }, [set2Valid, set2Blurred, set2Locked]);
+
   const onChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ): void => {
@@ -137,39 +143,34 @@ React.useEffect(() => {
     setForm((prev) => ({ ...prev, [name]: value }));
   };
 
-  const onBlurNumber = (e: React.FocusEvent<HTMLInputElement>): void => {
-    const { name, value } = e.target;
-    const n = parseFloat(value);
+const onBlurNumber = (e: React.FocusEvent<HTMLInputElement>): void => {
+  const { name, value } = e.target;
+  const n = parseFloat(value);
 
-    if (!isNaN(n)) {
-      // Clamp to 4 decimals and optionally enforce range (e.g. 0 to 2 inches)
-      const formatted = Math.max(0, n).toFixed(3); // remove Math.max if negatives are allowed
-      setForm((prev) => ({ ...prev, [name]: formatted }));
-    }
-
-     if (!set1Locked) {
-    const allSet1Blurred = positions.every(
-      (pos) =>
-        form[`meas_s1_1_${pos}`] !== "" &&
-        form[`meas_s1_2_${pos}`] !== ""
-    );
-    if (allSet1Blurred) {
-      setSet1Touched(true);
-    }
+  if (!isNaN(n)) {
+    const formatted = Math.max(0, n).toFixed(3);
+    setForm((prev) => ({ ...prev, [name]: formatted }));
   }
 
-  // Repeat if you also want to delay Set 2 locking:
-  if (!set2Locked && set1Locked) {
-    const allSet2Blurred = positions.every(
-      (pos) =>
-        form[`meas_s2_1_${pos}`] !== "" &&
-        form[`meas_s2_2_${pos}`] !== ""
-    );
-    if (allSet2Blurred) {
-      setSet2Touched(true);
+  // Track blurred fields
+  const match = name.match(/meas_s(\d)_\d_(\d+)/);
+  if (match) {
+    const [, setNum, posStr] = match;
+    const pos = parseInt(posStr) as Position;
+
+    if (setNum === "1") {
+      setSet1Blurred((prev) => ({ ...prev, [pos]: true }));
+    } else if (setNum === "2") {
+      setSet2Blurred((prev) => ({ ...prev, [pos]: true }));
     }
   }
-  };
+};
+function allPositionsBlurred(blurMap: Record<Position, boolean>): boolean {
+  return positions.every((pos) => blurMap[pos]);
+}
+
+
+  
   function isDescending(averages: number[]): boolean {
     for (let i = 1; i < averages.length; i++) {
       if (averages[i] > averages[i - 1]) return false;
@@ -209,7 +210,7 @@ React.useEffect(() => {
     }
 
     setCalcResult(result);
-    setStatus("Calculation complete.");
+    setStatus("✅ Calculation validated.");
   };
 
   return (
@@ -400,8 +401,8 @@ React.useEffect(() => {
           </table>
         </div>
         <div>
-          {set1Status && <div className={styles.status}>{set1Status}</div>}
-          {set2Status && <div className={styles.status}>{set2Status}</div>}
+          {set1Status && <div className={styles.statusValid}>{set1Status}</div>}
+          {set2Status && <div className={styles.statusValid}>{set2Status}</div>}
         </div>
         <button
           type="button"
@@ -411,7 +412,7 @@ React.useEffect(() => {
         >
           Calculate
         </button>
-        {status && <div className={styles.status}>{status}</div>}
+        {status && <div className={styles.statusValid}>{status}</div>}
 
         {calcResult && (
           <div className={styles.results}>

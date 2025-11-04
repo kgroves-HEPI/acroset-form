@@ -156,3 +156,15 @@
 .inputInvalid {
   border: 2px solid #f44336; // red
 }
+
+.statusValid {
+  margin-top: 12px;
+  font-weight: 500;
+  color: #4caf50; /* green */
+}
+
+.statusInvalid {
+  margin-top: 12px;
+  font-weight: 500;
+  color: #f44336; /* red */
+}
