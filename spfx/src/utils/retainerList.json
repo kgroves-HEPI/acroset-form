@@ -1,0 +1,47 @@
+{
+  "777Dry-777Wet-frontRetainer": {
+    "in": 0.846,
+    "mm": 21.5
+  },
+  "785-789-frontRetainer": {
+    "in": 1.5,
+    "mm": 38.1
+  },
+  "793STD-793EL-frontRetainer": {
+    "in": 1.181,
+    "mm": 30.0
+  },
+  "797-frontRetainer": {
+    "in": 1.850,
+    "mm": 47.0
+  },
+  "730E-830E-frontRetainer": {
+    "in": 1.374,
+    "mm": 34.9
+  },
+  "930E-frontRetainer": {
+    "in": 1.500,
+    "mm": 38.1
+  },
+
+  "773-777-785-rearRetainer": {
+    "in": 1.043,
+    "mm": 26.5
+  },
+  "789-rearRetainer": {
+    "in": 1.114,
+    "mm": 28.8
+  },
+  "793STD-rearRetainer": {
+    "in": 1.339,
+    "mm": 34.0
+  },
+  "793EL-rearRetainer": {
+    "in": 1.531,
+    "mm": 38.9
+  },
+  "797-rearRetainer": {
+    "in": 1.890,
+    "mm": 48.0
+  }
+}

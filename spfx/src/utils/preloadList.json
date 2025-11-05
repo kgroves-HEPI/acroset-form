@@ -1,0 +1,66 @@
+{
+  "777Dry-frontPreload": {
+    "in": 0.0039,
+    "mm": 0.10
+  },
+  "777Wet-frontPreload": {
+    "in": 0.0051,
+    "mm": 0.13
+  },
+  "785-frontPreload": {
+    "in": 0.0059,
+    "mm": 0.15
+  },
+  "789-frontPreload": {
+    "in": 0.0063,
+    "mm": 0.16
+  },
+  "793STD-frontPreload": {
+    "in": 0.0079,
+    "mm": 0.20
+  },
+  "793EL-frontPreload": {
+    "in": 0.0067,
+    "mm": 0.17
+  },
+  "797-frontPreload": {
+    "in": 0.0098,
+    "mm": 0.25
+  },
+  "730E-frontPreload": {
+    "in": 0.0071,
+    "mm": 0.18
+  },
+  "830E-frontPreload": {
+    "in": 0.0059,
+    "mm": 0.15
+  },
+  "930E-frontPreload": {
+    "in": 0.0106,
+    "mm": 0.27
+  },
+  "773-777-rearPreload": {
+    "in": 0.0047,
+    "mm": 0.12
+  },
+  "785-rearPreload": {
+    "in": 0.0083,
+    "mm": 0.21
+  },
+  "789-rearPreload": {
+    "in": 0.0087,
+    "mm": 0.22
+  },
+  "793STD-rearPreload": {
+    "in": 0.0114,
+    "mm": 0.29
+  },
+  "793EL-rearPreload": {
+    "in": 0.0110,
+    "mm": 0.28
+  },
+  "797-rearPreload": {
+    "in": 0.0177,
+    "mm": 0.45
+  }
+}
