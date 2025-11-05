@@ -1,0 +1,44 @@
+{
+"773": {
+    "group" : "rear",
+    "retainer": "773-777-785-rearRetainer",
+    "preload": "773-777-rearPreload",
+    "TorqueArray": "657R-773R-777FR-785R-TorqueArray"
+  },
+  "777": {
+    "group" : "rear",
+    "retainer": "773-777-785-rearRetainer",
+    "preload": "773-777-rearPreload",
+    "TorqueArray": "657R-773R-777FR-785R-TorqueArray"
+  },
+  "785": {
+    "group" : "rear",
+    "retainer": "773-777-785-rearRetainer",  
+    "preload": "785-rearPreload",
+    "TorqueArray": "657R-773R-777FR-785R-TorqueArray"
+  },
+  "789": {
+    "group" : "rear",
+    "retainer": "789-rearRetainer",  
+    "preload": "789-rearPreload",
+    "TorqueArray": "789R-TorqueArray"
+  },
+  "793": {
+    "group" : "rear",
+    "retainer": "793STD-rearRetainer",  
+    "preload": "793STD-rearPreload",
+    "TorqueArray": "830EF-930EF-960EF-793RSTD-TorqueArray"
+  },
+  "793EL": {
+    "group" : "rear",
+    "retainer": "793EL-rearRetainer",  
+    "preload": "793EL-rearPreload",
+    "TorqueArray": "793REL-TorqueArray"
+  },
+  "797": {
+    "group" : "rear",
+    "retainer": "797-rearRetainer",  
+    "preload": "797-rearPreload",
+    "TorqueArray": "797R-TorqueArray"
+  }
+}
