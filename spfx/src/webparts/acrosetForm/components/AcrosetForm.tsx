@@ -1,223 +1,491 @@
 import * as React from "react";
 import styles from "./AcrosetForm.module.scss";
-import { computeFromFormState, CalcResult } from "../../../utils/compute";
+import {
+  compute,
+  CalcResult,
+  ComputeInput,
+  Unit,
+  Group,
+  PointRow,
+} from "../../../utils/compute";
 
-// --- types ---
-type Position = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+// --- data (adjust paths to match your project) ---
+import modelFront from "../../../data/modelFrontList.json";
+import modelRear from "../../../data/modelRearList.json";
+import preloadList from "../../../data/preloadList.json";
+import retainerList from "../../../data/retainerList.json";
+import torqueArrayList from "../../../data/torqueArrayList.json";
+import unitsList from "../../../data/unitsList.json";
+import groupList from "../../../data/groupList.json";
+import locationList from "../../../data/locationList.json";
 
-type MeasKey =
-  | `meas_s1_1_${Position}`
-  | `meas_s1_2_${Position}`
-  | `meas_s2_1_${Position}`
-  | `meas_s2_2_${Position}`;
+// --- types matching your JSONs ---
+type UnitValue = { in: number; mm: number };
 
-//type MeasValue = '' | number;
+type PreloadList = Record<string, UnitValue>;
+type RetainerList = Record<string, UnitValue>;
+type TorqueArrayList = Record<string, number[]>;
+
+interface ModelSpec {
+  group: Group;
+  retainer: keyof RetainerList;
+  preload: keyof PreloadList;
+  TorqueArray: keyof TorqueArrayList;
+}
+type ModelMap = Record<string, ModelSpec>;
+
+// --- helpers for units ---
+const pairDevMaxByUnit: Record<Unit, number> = {
+  Imperial: 0.01, // inches
+  Metric: 0.25, // mm
+};
+const decimalsByUnit: Record<Unit, number> = { Imperial: 3, Metric: 2 };
+const resultTolByUnit: Record<Unit, string> = {
+  Imperial: "± 0.001 in",
+  Metric: "± 0.03 mm",
+};
+const measLabelByUnit: Record<Unit, string> = {
+  Imperial: "Measured Retainer Thickness (in)",
+  Metric: "Measured Retainer Thickness (mm)",
+};
+
+function pickByUnit<T extends UnitValue>(u: Unit, val: T): number {
+  return u === "Imperial" ? val.in : val.mm;
+}
+
+function formatByUnit(u: Unit, n: number): string {
+  return n.toFixed(decimalsByUnit[u]);
+}
+
+// --- row shape for dynamic torque arrays ---
+type Row = {
+  torque_ftlb: number;
+  s1_m1: string;
+  s1_m2: string;
+  s2_m1: string;
+  s2_m2: string;
+};
 
 type FormState = {
   date: string;
   mechanic: string;
   wo: string;
   location: string;
-  model: string;
-  retainer: string;
-} & Record<MeasKey, string>;
-
-// --- constants ---
-const positions: Position[] = [1, 2, 3, 4, 5, 6, 7, 8];
-
-const TORQUE_BY_POSITION: Record<Position, number> = {
-  1: 0,
-  2: 20,
-  3: 40,
-  4: 60,
-  5: 80,
-  6: 100,
-  7: 120,
-  8: 140,
+  unit: Unit;
+  group: Group | "";
+  modelKey: string;
+  retainerMeasured: string; // in current unit (required)
+  rows: Row[];
 };
 
-// --- component ---
 export default function AcrosetForm(): JSX.Element {
+  // derive typed data
+  const FRONT_MODELS = modelFront as unknown as ModelMap; // front
+  const REAR_MODELS = modelRear as unknown as ModelMap; // rear
+  const PRELOADS = preloadList as unknown as PreloadList;
+  const RETAINERS = retainerList as unknown as RetainerList;
+  const TORQUES = torqueArrayList as unknown as TorqueArrayList;
+  const UNITS = unitsList as Unit[]; // ["Imperial","Metric"]
+  const GROUPS = groupList as Group[]; // ["front","rear"]
+  const LOCATIONS = locationList as string[];
+
   const [calcResult, setCalcResult] = React.useState<CalcResult | null>(null);
   const [status, setStatus] = React.useState<string | null>(null);
 
-  // build dynamic measurement keys
-  const emptyDyn: Record<MeasKey, string> = positions.reduce(
-    (acc, pos) => ({
-      ...acc,
-      [`meas_s1_1_${pos}`]: "",
-      [`meas_s1_2_${pos}`]: "",
-      [`meas_s2_1_${pos}`]: "",
-      [`meas_s2_2_${pos}`]: "",
-    }),
-    {} as Record<MeasKey, string>
-  );
+  const [set1Status, setSet1Status] = React.useState<string | null>(null);
+  const [set2Status, setSet2Status] = React.useState<string | null>(null);
+  const [set1Locked, setSet1Locked] = React.useState<boolean>(false);
+  const [set2Locked, setSet2Locked] = React.useState<boolean>(false);
+
+  // track "blurred" state per-row per set (to gate locking)
+  const [set1Blurred, setSet1Blurred] = React.useState<boolean[]>([]);
+  const [set2Blurred, setSet2Blurred] = React.useState<boolean[]>([]);
 
   const [form, setForm] = React.useState<FormState>({
     date: "",
     mechanic: "",
     wo: "",
     location: "",
-    model: "",
-    retainer: "",
-    ...emptyDyn,
+    unit: UNITS[0] ?? "Imperial",
+    group: "",
+    modelKey: "",
+    retainerMeasured: "",
+    rows: [],
   });
 
-  const set1Valid = React.useMemo(() => {
-    const averages: number[] = [];
+  // derive model spec from group/modelKey
+  const modelSpec: ModelSpec | null = React.useMemo<ModelSpec | null>(() => {
+    if (!form.group || !form.modelKey) return null;
+    const mm = form.group === "front" ? FRONT_MODELS : REAR_MODELS;
+    return (mm[form.modelKey] as ModelSpec) ?? null;
+  }, [form.group, form.modelKey]);
 
-    const allValid = positions.every((pos) => {
-      const v1 = parseFloat(form[`meas_s1_1_${pos}`]);
-      const v2 = parseFloat(form[`meas_s1_2_${pos}`]);
+  const torqueArray: number[] = React.useMemo<number[]>(() => {
+    if (!modelSpec) return [];
+    const key = modelSpec.TorqueArray;
+    return TORQUES[key] ?? [];
+  }, [modelSpec]);
 
-      if (isNaN(v1) || isNaN(v2)) return false;
+  const nominalRetainerPlaceholder = React.useMemo<string>(() => {
+    if (!modelSpec) return "";
+    const r = RETAINERS[modelSpec.retainer];
+    if (!r) return "";
+    return formatByUnit(form.unit, pickByUnit(form.unit, r));
+  }, [modelSpec, form.unit]);
 
-      if (!isWithinDeviation(v1, v2)) return false;
+  const preloadValue = React.useMemo<number>(() => {
+    if (!modelSpec) return 0;
+    const p = PRELOADS[modelSpec.preload];
+    return p ? pickByUnit(form.unit, p) : 0;
+  }, [modelSpec, form.unit]);
 
-      averages.push((v1 + v2) / 2);
-      return true;
+  // when torque array changes, re-initialize rows & blur tracking
+  React.useEffect((): void => {
+    const newRows: Row[] = torqueArray.map((t) => ({
+      torque_ftlb: t,
+      s1_m1: "",
+      s1_m2: "",
+      s2_m1: "",
+      s2_m2: "",
+    }));
+    setForm((prev) => ({ ...prev, rows: newRows }));
+    setSet1Blurred(torqueArray.map(() => false));
+    setSet2Blurred(torqueArray.map(() => false));
+    setSet1Locked(false);
+    setSet2Locked(false);
+    setSet1Status(null);
+    setSet2Status(null);
+    setCalcResult(null);
+    setStatus(null);
+  }, [torqueArray]);
+
+  // --- UI change handlers (explicit return types) ---
+  const onChangeText = (e: React.ChangeEvent<HTMLInputElement>): void => {
+    const { name, value } = e.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const onChangeSelect = (
+    e: React.ChangeEvent<HTMLSelectElement>,
+    kind: "unit" | "group" | "model" | "location"
+  ): void => {
+    const { value } = e.target;
+    if (kind === "unit") {
+      setForm((prev) => ({
+        ...prev,
+        unit: value as Unit,
+        retainerMeasured: prev.retainerMeasured,
+      }));
+      setCalcResult(null);
+      setStatus(null);
+      return;
+    }
+    if (kind === "group") {
+      setForm((prev) => ({
+        ...prev,
+        group: value as Group,
+        modelKey: "",
+        rows: [],
+      }));
+      return;
+    }
+    if (kind === "model") {
+      setForm((prev) => ({ ...prev, modelKey: value }));
+      return;
+    }
+    if (kind === "location") {
+      setForm((prev) => ({ ...prev, location: value }));
+    }
+  };
+
+  const onChangeNumberCell = (
+    e: React.ChangeEvent<HTMLInputElement>,
+    rowIdx: number,
+    field: "s1_m1" | "s1_m2" | "s2_m1" | "s2_m2"
+  ): void => {
+    const { value } = e.target;
+    const valid = /^\d*\.?\d*$/.test(value);
+    if (!valid && value !== "") return;
+
+    setForm((prev) => {
+      const rows = [...prev.rows];
+      rows[rowIdx] = { ...rows[rowIdx], [field]: value };
+      return { ...prev, rows };
     });
+  };
 
-    return allValid && isDescending(averages);
-  }, [form]);
+  const onBlurNumberCell = (
+    e: React.FocusEvent<HTMLInputElement>,
+    rowIdx: number,
+    setNum: 1 | 2
+  ): void => {
+    const { name, value } = e.target;
+    const n = parseFloat(value);
+    const dec = decimalsByUnit[form.unit];
+    if (!isNaN(n)) {
+      if (n < 0) return;
+      const formatted = n.toFixed(dec);
+      setForm((prev) => {
+        const rows = [...prev.rows];
+        const field = name.split(".").pop() as "s1_m1" | "s1_m2" | "s2_m1" | "s2_m2";
+        rows[rowIdx] = { ...rows[rowIdx], [field]: formatted };
+        return { ...prev, rows };
+      });
+    }
+    if (setNum === 1) {
+      setSet1Blurred((prev) => {
+        const next = [...prev];
+        next[rowIdx] = true;
+        return next;
+      });
+    } else {
+      setSet2Blurred((prev) => {
+        const next = [...prev];
+        next[rowIdx] = true;
+        return next;
+      });
+    }
+  };
 
-  const set2Valid = React.useMemo(() => {
-    if (!set1Valid) return false;
+  const onBlurRetainer = (e: React.FocusEvent<HTMLInputElement>): void => {
+    const n = parseFloat(e.target.value);
+    const dec = decimalsByUnit[form.unit];
+    if (!isNaN(n) && n >= 0) {
+      setForm((prev) => ({ ...prev, retainerMeasured: n.toFixed(dec) }));
+    }
+  };
 
-    const averages: number[] = [];
-
-    const allValid = positions.every((pos) => {
-      const v1 = parseFloat(form[`meas_s2_1_${pos}`]);
-      const v2 = parseFloat(form[`meas_s2_2_${pos}`]);
-
-      if (isNaN(v1) || isNaN(v2)) return false;
-
-      if (!isWithinDeviation(v1, v2)) return false;
-
-      averages.push((v1 + v2) / 2);
-      return true;
-    });
-
-    return allValid && isDescending(averages);
-  }, [form, set1Valid]);
-
-  const [set1Status, setSet1Status] = React.useState<string | null>(null);
-  const [set2Status, setSet2Status] = React.useState<string | null>(null);
-  const [set1Locked, setSet1Locked] = React.useState(false);
-  const [set2Locked, setSet2Locked] = React.useState(false);
-
-  const [set1Blurred, setSet1Blurred] = React.useState<Record<Position, boolean>>(
-  () => positions.reduce((acc, pos) => ({ ...acc, [pos]: false }), {} as Record<Position, boolean>)
-);
-  const [set2Blurred, setSet2Blurred] = React.useState<Record<Position, boolean>>(
-  () => positions.reduce((acc, pos) => ({ ...acc, [pos]: false }), {} as Record<Position, boolean>)
-);
-
-
-React.useEffect(() => {
-  if (set1Valid && allPositionsBlurred(set1Blurred) && !set1Locked) {
-    setSet1Status("✅ Set 1 Inputs Validated");
-    setSet1Locked(true);
+  // --- validation helpers (explicit return types) ---
+  function withinPairDeviation(v1: number, v2: number): boolean {
+    return Math.abs(v1 - v2) <= pairDevMaxByUnit[form.unit];
   }
-}, [set1Valid, set1Blurred, set1Locked]);
+  function nonIncreasing(avgs: number[]): boolean {
+    for (let i = 1; i < avgs.length; i++) {
+      if (avgs[i] > avgs[i - 1]) return false;
+    }
+    return true;
+  }
+  function parseNonNeg(s: string): number | null {
+    const n = parseFloat(s);
+    if (isNaN(n) || n < 0) return null;
+    return n;
+  }
+  function inputBorderClass(v1s: string, v2s: string, locked: boolean): string {
+    if (locked) return "";
+    const v1 = parseFloat(v1s);
+    const v2 = parseFloat(v2s);
+    if (isNaN(v1) || isNaN(v2) || v1 < 0 || v2 < 0) return "";
+    return withinPairDeviation(v1, v2) ? styles.inputValid : styles.inputInvalid;
+  }
 
+  // set-level validators (explicit return types)
+  const set1Valid = React.useMemo<boolean>(() => {
+    if (!form.rows.length) return false;
+    const avgs: number[] = [];
+    for (const r of form.rows) {
+      const v1 = parseNonNeg(r.s1_m1);
+      const v2 = parseNonNeg(r.s1_m2);
+      if (v1 === null || v2 === null) return false;
+      if (!withinPairDeviation(v1, v2)) return false;
+      avgs.push((v1 + v2) / 2);
+    }
+    return nonIncreasing(avgs);
+  }, [form.rows, form.unit]);
 
-  React.useEffect(() => {
-    if (set2Valid && allPositionsBlurred(set2Blurred) && !set2Locked) {
-      setSet2Status("✅ Set 2 Inputs Validated");
+  const set2Valid = React.useMemo<boolean>(() => {
+    if (!set1Valid) return false;
+    const avgs: number[] = [];
+    for (const r of form.rows) {
+      const v1 = parseNonNeg(r.s2_m1);
+      const v2 = parseNonNeg(r.s2_m2);
+      if (v1 === null || v2 === null) return false;
+      if (!withinPairDeviation(v1, v2)) return false;
+      avgs.push((v1 + v2) / 2);
+    }
+    return nonIncreasing(avgs);
+  }, [form.rows, set1Valid, form.unit]);
+
+  // lock sets when valid + all blurred
+  React.useEffect((): void => {
+    if (set1Valid && set1Blurred.every(Boolean) && !set1Locked) {
+      setSet1Status("✅ Set 1 inputs validated");
+      setSet1Locked(true);
+    }
+  }, [set1Valid, set1Blurred, set1Locked]);
+
+  React.useEffect((): void => {
+    if (set2Valid && set2Blurred.every(Boolean) && !set2Locked) {
+      setSet2Status("✅ Set 2 inputs validated");
       setSet2Locked(true);
     }
   }, [set2Valid, set2Blurred, set2Locked]);
 
-  const onChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
-  ): void => {
-    const { name, value, type } = e.target;
+  // ----- typed handler wrappers to avoid inline arrow functions -----
+  const handleTextChange: React.ChangeEventHandler<HTMLInputElement> = (e): void => onChangeText(e);
+  const handleLocationChange: React.ChangeEventHandler<HTMLSelectElement> = (e): void => onChangeSelect(e, "location");
+  const handleUnitChange: React.ChangeEventHandler<HTMLSelectElement> = (e): void => onChangeSelect(e, "unit");
+  const handleGroupChange: React.ChangeEventHandler<HTMLSelectElement> = (e): void => onChangeSelect(e, "group");
+  const handleModelChange: React.ChangeEventHandler<HTMLSelectElement> = (e): void => onChangeSelect(e, "model");
 
-    if (type === "number") {
-      // allow only digits, optional single dot, optional negative sign
-      const validNumberInput = /^-?\d*\.?\d*$/.test(value);
-      if (!validNumberInput && value !== "") return; // block invalid inputs
+  const onChangeRetainer: React.ChangeEventHandler<HTMLInputElement> = (e): void => {
+    const v = e.target.value;
+    if (/^\d*\.?\d*$/.test(v) || v === "") {
+      setForm((prev) => ({ ...prev, retainerMeasured: v }));
     }
-
-    setForm((prev) => ({ ...prev, [name]: value }));
   };
 
-const onBlurNumber = (e: React.FocusEvent<HTMLInputElement>): void => {
-  const { name, value } = e.target;
-  const n = parseFloat(value);
-
-  if (!isNaN(n)) {
-    const formatted = Math.max(0, n).toFixed(3);
-    setForm((prev) => ({ ...prev, [name]: formatted }));
+  function makeOnChangeCell(
+    rowIdx: number,
+    field: "s1_m1" | "s1_m2" | "s2_m1" | "s2_m2"
+  ): React.ChangeEventHandler<HTMLInputElement> {
+    return (e: React.ChangeEvent<HTMLInputElement>): void => onChangeNumberCell(e, rowIdx, field);
   }
 
-  // Track blurred fields
-  const match = name.match(/meas_s(\d)_\d_(\d+)/);
-  if (match) {
-    const [, setNum, posStr] = match;
-    const pos = parseInt(posStr) as Position;
-
-    if (setNum === "1") {
-      setSet1Blurred((prev) => ({ ...prev, [pos]: true }));
-    } else if (setNum === "2") {
-      setSet2Blurred((prev) => ({ ...prev, [pos]: true }));
-    }
-  }
-};
-function allPositionsBlurred(blurMap: Record<Position, boolean>): boolean {
-  return positions.every((pos) => blurMap[pos]);
-}
-
-
-  
-  function isDescending(averages: number[]): boolean {
-    for (let i = 1; i < averages.length; i++) {
-      if (averages[i] > averages[i - 1]) return false;
-    }
-    return true;
+  function makeOnBlurCell(
+    rowIdx: number,
+    setNum: 1 | 2
+  ): React.FocusEventHandler<HTMLInputElement> {
+    return (e: React.FocusEvent<HTMLInputElement>): void => onBlurNumberCell(e, rowIdx, setNum);
   }
 
-  function isWithinDeviation(v1: number, v2: number, maxDev = 0.01): boolean {
-    return Math.abs(v1 - v2) <= maxDev;
-  }
-
-  function getInputBorderClass(
-    value1: string,
-    value2: string,
-    locked: boolean
-  ): string {
-    const v1 = parseFloat(value1);
-    const v2 = parseFloat(value2);
-
-    if (locked) return ""; // already validated
-    if (isNaN(v1) || isNaN(v2)) return ""; // incomplete
-    return isWithinDeviation(v1, v2) ? styles.inputValid : styles.inputInvalid;
-  }
-
+  // --- submit / calculate (explicit return types) ---
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>): void => {
     e.preventDefault();
     console.log("Form payload:", form);
     alert("Form captured locally. Check console for payload.");
   };
-  const handleCalculate = (): void => {
-    const result = computeFromFormState(form);
 
+  const handleCalculate = (): void => {
+    if (!modelSpec) return;
+
+    // Build ComputeInput
+    const rows: PointRow[] = form.rows.map((r) => ({
+      torque_ftlb: r.torque_ftlb,
+      s1_m1: parseNonNeg(r.s1_m1) ?? undefined,
+      s1_m2: parseNonNeg(r.s1_m2) ?? undefined,
+      s2_m1: parseNonNeg(r.s2_m1) ?? undefined,
+      s2_m2: parseNonNeg(r.s2_m2) ?? undefined,
+    }));
+
+    const input: ComputeInput = {
+      unit: form.unit,
+      group: form.group as Group,
+      modelKey: form.modelKey,
+      torqueArray_ftlb: torqueArray,
+      preload: preloadValue, // in current unit
+      retainerMeasured: parseFloat(form.retainerMeasured), // in current unit
+      rows,
+      thresholds: {
+        r2Min: 0.995,
+        avgErrMax_ftlb: 5,
+        maxErrMax_ftlb: 10,
+        pairDevMax: pairDevMaxByUnit[form.unit],
+        enforceMonotonic: true,
+      },
+    };
+
+    const result = compute(input);
     if (!result.ok) {
       setCalcResult(null);
-      setStatus(result.reason); // show validation or regression error
+      setStatus(result.message ?? "❌ Calculation failed.");
       return;
     }
-
     setCalcResult(result);
     setStatus("✅ Calculation validated.");
   };
+
+  // --- derived UI bits ---
+  const modelOptions = React.useMemo<string[]>(() => {
+    if (!form.group) return [];
+    const mm = form.group === "front" ? FRONT_MODELS : REAR_MODELS;
+    return Object.keys(mm);
+  }, [form.group]);
+
+  const unitMeasHdr = form.unit === "Imperial" ? "(in)" : "(mm)";
+  const tolLabel = resultTolByUnit[form.unit];
+
+  function renderRow(r: Row, idx: number): JSX.Element {
+    return (
+      <tr key={r.torque_ftlb}>
+        <td>{r.torque_ftlb}</td>
+
+        {/* Set 1 */}
+        <td>
+          <input
+            className={`${styles.input} ${inputBorderClass(
+              r.s1_m1,
+              r.s1_m2,
+              set1Locked
+            )}`}
+            type="number"
+            inputMode="decimal"
+            name={`row.${idx}.s1_m1`}
+            value={r.s1_m1}
+            onChange={makeOnChangeCell(idx, "s1_m1")}
+            onBlur={makeOnBlurCell(idx, 1)}
+            disabled={set1Locked}
+          />
+        </td>
+        <td>
+          <input
+            className={`${styles.input} ${inputBorderClass(
+              r.s1_m1,
+              r.s1_m2,
+              set1Locked
+            )}`}
+            type="number"
+            inputMode="decimal"
+            name={`row.${idx}.s1_m2`}
+            value={r.s1_m2}
+            onChange={makeOnChangeCell(idx, "s1_m2")}
+            onBlur={makeOnBlurCell(idx, 1)}
+            disabled={set1Locked}
+          />
+        </td>
+
+        {/* Set 2 */}
+        <td>
+          <input
+            className={`${styles.input} ${inputBorderClass(
+              r.s2_m1,
+              r.s2_m2,
+              set2Locked
+            )}`}
+            type="number"
+            inputMode="decimal"
+            name={`row.${idx}.s2_m1`}
+            value={r.s2_m1}
+            onChange={makeOnChangeCell(idx, "s2_m1")}
+            onBlur={makeOnBlurCell(idx, 2)}
+            disabled={!set1Locked || set2Locked}
+          />
+        </td>
+        <td>
+          <input
+            className={`${styles.input} ${inputBorderClass(
+              r.s2_m1,
+              r.s2_m2,
+              set2Locked
+            )}`}
+            type="number"
+            inputMode="decimal"
+            name={`row.${idx}.s2_m2`}
+            value={r.s2_m2}
+            onChange={makeOnChangeCell(idx, "s2_m2")}
+            onBlur={makeOnBlurCell(idx, 2)}
+            disabled={!set1Locked || set2Locked}
+          />
+        </td>
+      </tr>
+    );
+  }
 
   return (
     <div className={styles.card}>
       <h2 className={styles.h2}>Acroset — Request Form</h2>
 
       <form onSubmit={handleSubmit} className={styles.form}>
+        {/* Top row */}
         <div className={styles.gridFormRow}>
           <label className={styles.label}>
             Date
@@ -226,7 +494,7 @@ function allPositionsBlurred(blurMap: Record<Position, boolean>): boolean {
               name="date"
               placeholder="MM/DD/YYYY"
               value={form.date}
-              onChange={onChange}
+              onChange={handleTextChange}
             />
           </label>
 
@@ -238,7 +506,7 @@ function allPositionsBlurred(blurMap: Record<Position, boolean>): boolean {
               placeholder="Name"
               required
               value={form.mechanic}
-              onChange={onChange}
+              onChange={handleTextChange}
             />
           </label>
 
@@ -250,7 +518,7 @@ function allPositionsBlurred(blurMap: Record<Position, boolean>): boolean {
               placeholder="e.g., 12345"
               required
               value={form.wo}
-              onChange={onChange}
+              onChange={handleTextChange}
             />
           </label>
 
@@ -261,13 +529,52 @@ function allPositionsBlurred(blurMap: Record<Position, boolean>): boolean {
               name="location"
               required
               value={form.location}
-              onChange={onChange}
+              onChange={handleLocationChange}
             >
               <option value="" disabled>
                 Select…
               </option>
-              <option>Billings</option>
-              <option>Leduc</option>
+              {LOCATIONS.map((loc) => (
+                <option key={loc} value={loc}>
+                  {loc}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className={styles.label}>
+            Units
+            <select
+              className={styles.input}
+              name="unit"
+              value={form.unit}
+              onChange={handleUnitChange}
+            >
+              {UNITS.map((u) => (
+                <option key={u} value={u}>
+                  {u}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className={styles.label}>
+            Group
+            <select
+              className={styles.input}
+              name="group"
+              required
+              value={form.group}
+              onChange={handleGroupChange}
+            >
+              <option value="" disabled>
+                Select…
+              </option>
+              {GROUPS.map((g) => (
+                <option key={g} value={g}>
+                  {g}
+                </option>
+              ))}
             </select>
           </label>
 
@@ -275,37 +582,44 @@ function allPositionsBlurred(blurMap: Record<Position, boolean>): boolean {
             Model
             <select
               className={styles.input}
-              name="model"
+              name="modelKey"
               required
-              value={form.model}
-              onChange={onChange}
+              value={form.modelKey}
+              onChange={handleModelChange}
+              disabled={!form.group}
             >
               <option value="" disabled>
                 Select…
               </option>
-              <option value="777 Front">777 Front</option>
-              <option value="797 Front">797 Front</option>
-              <option value="830E Front">830E Front</option>
-              <option value="930E Front">930E Front</option>
+              {modelOptions.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
             </select>
           </label>
 
           <label className={styles.label}>
-            Measured Retainer Thickness (in)
+            {measLabelByUnit[form.unit]}
             <input
               className={styles.input}
-              name="retainer"
+              name="retainerMeasured"
               type="number"
-              step="0.0001"
+              step={form.unit === "Imperial" ? "0.0001" : "0.01"}
               inputMode="decimal"
-              placeholder="e.g., 1.5000"
+              placeholder={
+                nominalRetainerPlaceholder
+                  ? `e.g., ${nominalRetainerPlaceholder}`
+                  : "required"
+              }
               required
-              value={form.retainer}
-              onChange={onChange}
-              onBlur={onBlurNumber}
+              value={form.retainerMeasured}
+              onChange={onChangeRetainer}
+              onBlur={onBlurRetainer}
             />
           </label>
         </div>
+
         {/* --- Measurements --- */}
         <h3 className={styles.section}>Measurements</h3>
         <div className={styles.tableWrapper}>
@@ -313,8 +627,8 @@ function allPositionsBlurred(blurMap: Record<Position, boolean>): boolean {
             <thead>
               <tr>
                 <th rowSpan={2}>Torque (ft-lb)</th>
-                <th colSpan={2}>Set 1 (in)</th>
-                <th colSpan={2}>Set 2 (in)</th>
+                <th colSpan={2}>Set 1 {unitMeasHdr}</th>
+                <th colSpan={2}>Set 2 {unitMeasHdr}</th>
               </tr>
               <tr>
                 <th>Meas. #1</th>
@@ -323,121 +637,69 @@ function allPositionsBlurred(blurMap: Record<Position, boolean>): boolean {
                 <th>Meas. #2</th>
               </tr>
             </thead>
-            <tbody>
-              {positions.map((pos) => (
-                <tr key={pos}>
-                  <td>{TORQUE_BY_POSITION[pos]}</td>
-
-                  {/* Set 1 */}
-                  <td>
-                    <input
-                      className={`${styles.input} ${getInputBorderClass(
-                        form[`meas_s1_1_${pos}`],
-                        form[`meas_s1_2_${pos}`],
-                        set1Locked
-                      )}`}
-                      type="number"
-                      inputMode="decimal"
-                      name={`meas_s1_1_${pos}`}
-                      value={form[`meas_s1_1_${pos}` as MeasKey]}
-                      onChange={onChange}
-                      onBlur={onBlurNumber}
-                      disabled={set1Locked}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      className={`${styles.input} ${getInputBorderClass(
-                        form[`meas_s1_1_${pos}`],
-                        form[`meas_s1_2_${pos}`],
-                        set1Locked
-                      )}`}
-                      type="number"
-                      inputMode="decimal"
-                      name={`meas_s1_2_${pos}`}
-                      value={form[`meas_s1_2_${pos}` as MeasKey]}
-                      onChange={onChange}
-                      onBlur={onBlurNumber}
-                      disabled={set1Locked}
-                    />
-                  </td>
-
-                  {/* Set 2 */}
-                  <td>
-                    <input
-                      className={`${styles.input} ${getInputBorderClass(
-                        form[`meas_s2_1_${pos}`],
-                        form[`meas_s2_2_${pos}`],
-                        set2Locked
-                      )}`}
-                      type="number"
-                      inputMode="decimal"
-                      name={`meas_s2_1_${pos}`}
-                      value={form[`meas_s2_1_${pos}` as MeasKey]}
-                      onChange={onChange}
-                      onBlur={onBlurNumber}
-                      disabled={!set1Locked || set2Locked}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      className={`${styles.input} ${getInputBorderClass(
-                        form[`meas_s2_1_${pos}`],
-                        form[`meas_s2_2_${pos}`],
-                        set2Locked
-                      )}`}
-                      type="number"
-                      inputMode="decimal"
-                      name={`meas_s2_2_${pos}`}
-                      value={form[`meas_s2_2_${pos}` as MeasKey]}
-                      onChange={onChange}
-                      onBlur={onBlurNumber}
-                      disabled={!set1Locked || set2Locked}
-                    />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
+            <tbody>{form.rows.map(renderRow)}</tbody>
           </table>
         </div>
+
         <div>
           {set1Status && <div className={styles.statusValid}>{set1Status}</div>}
           {set2Status && <div className={styles.statusValid}>{set2Status}</div>}
         </div>
+
         <button
           type="button"
           className={styles.button}
           onClick={handleCalculate}
-          disabled={!set1Valid || !set2Valid}
+          disabled={
+            !form.location ||
+            !form.group ||
+            !form.modelKey ||
+            !form.retainerMeasured ||
+            !set1Valid ||
+            !set2Valid
+          }
         >
           Calculate
         </button>
+
         {status && <div className={styles.statusValid}>{status}</div>}
 
-        {calcResult && (
+        {calcResult && calcResult.ok && calcResult.chosenFit && (
           <div className={styles.results}>
             <h3>Shim Pack Recommendation</h3>
             <p>
-              <strong>Recommended:</strong> {calcResult.shimX?.toFixed(3)} ±
-              0.001 in
+              <strong>Chosen fit:</strong> {calcResult.chosen}
             </p>
             <p>
-              <strong>Slope (a):</strong> {calcResult.fit.a.toFixed(6)}
+              <strong>Recommended:</strong>{" "}
+              {formatByUnit(form.unit, calcResult.chosenFit.shimX)} {tolLabel}
             </p>
             <p>
-              <strong>R²:</strong> {calcResult.fit.r2.toFixed(6)}
+              <strong>Slope (a):</strong> {calcResult.chosenFit.a.toFixed(6)}
             </p>
             <p>
-              <strong>Avg Error:</strong> {calcResult.fit.avgErr.toFixed(4)}{" "}
-              ft-lb
+              <strong>R²:</strong> {calcResult.chosenFit.r2.toFixed(6)}
             </p>
             <p>
-              <strong>Max Error:</strong> {calcResult.fit.maxErr.toFixed(4)}{" "}
-              ft-lb
+              <strong>Avg Error:</strong>{" "}
+              {calcResult.chosenFit.avgErr_ftlb.toFixed(4)} ft-lb
+            </p>
+            <p>
+              <strong>Max Error:</strong>{" "}
+              {calcResult.chosenFit.maxErr_ftlb.toFixed(4)} ft-lb
             </p>
             <p>
               <strong>Torque at Shim Pack:</strong>{" "}
-              {calcResult.yAtShim?.toFixed(4) ?? "—"} ft-lb
+              {calcResult.chosenFit.yAtShim_ftlb.toFixed(4)} ft-lb
+            </p>
+          </div>
+        )}
+
+        {calcResult && !calcResult.ok && (
+          <div className={styles.results}>
+            <h3>Shim Pack Recommendation</h3>
+            <p>
+              <strong>Failed:</strong> {calcResult.message ?? "Invalid data"}
             </p>
           </div>
         )}
