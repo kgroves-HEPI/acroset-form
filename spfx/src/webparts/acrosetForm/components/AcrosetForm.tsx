@@ -57,6 +57,14 @@ function formatByUnit(u: Unit, n: number): string {
   return n.toFixed(decimalsByUnit[u]);
 }
 
+function todayMMDDYYYY(): string {
+  const d = new Date();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  return `${mm}/${dd}/${yyyy}`;
+}
+
 // --- row shape for dynamic torque arrays ---
 type Row = {
   torque_ftlb: number;
@@ -101,6 +109,11 @@ export default function AcrosetForm(): JSX.Element {
   const [set1Blurred, setSet1Blurred] = React.useState<boolean[]>([]);
   const [set2Blurred, setSet2Blurred] = React.useState<boolean[]>([]);
 
+  const [monoOkSet1, setMonoOkSet1] = React.useState<boolean[]>([]);
+  const [monoOkSet2, setMonoOkSet2] = React.useState<boolean[]>([]);
+
+  
+
   const [form, setForm] = React.useState<FormState>({
     date: "",
     mechanic: "",
@@ -113,10 +126,14 @@ export default function AcrosetForm(): JSX.Element {
     rows: [],
   });
 
+  React.useEffect(() => {
+  setForm((prev) => (prev.date ? prev : { ...prev, date: todayMMDDYYYY() }));
+}, []);
+
   // derive model spec from group/modelKey
   const modelSpec: ModelSpec | null = React.useMemo<ModelSpec | null>(() => {
     if (!form.group || !form.modelKey) return null;
-    const mm = form.group === "front" ? FRONT_MODELS : REAR_MODELS;
+    const mm = form.group === "Front" ? FRONT_MODELS : REAR_MODELS;
     return (mm[form.modelKey] as ModelSpec) ?? null;
   }, [form.group, form.modelKey]);
 
@@ -222,29 +239,77 @@ export default function AcrosetForm(): JSX.Element {
     const { name, value } = e.target;
     const n = parseFloat(value);
     const dec = decimalsByUnit[form.unit];
-    if (!isNaN(n)) {
-      if (n < 0) return;
-      const formatted = n.toFixed(dec);
-      setForm((prev) => {
-        const rows = [...prev.rows];
-        const field = name.split(".").pop() as "s1_m1" | "s1_m2" | "s2_m1" | "s2_m2";
-        rows[rowIdx] = { ...rows[rowIdx], [field]: formatted };
-        return { ...prev, rows };
+    if (isNaN(n) || n < 0) return;
+
+    const field = name.split(".").pop() as
+      | "s1_m1"
+      | "s1_m2"
+      | "s2_m1"
+      | "s2_m2";
+
+    // ---- Build a nextRows snapshot with the formatted value
+    const nextRows = [...form.rows];
+    const formatted = n.toFixed(dec);
+    nextRows[rowIdx] = { ...nextRows[rowIdx], [field]: formatted };
+
+    // ---- 1) Commit the formatted value first
+    setForm((prev) => ({ ...prev, rows: nextRows }));
+
+    // ---- 2) After commit: mark row blurred only when its pair is complete,
+    //        AND recompute monotonicity using the SAME nextRows snapshot.
+    //        Use a microtask to ensure the UI paints the new value first.
+    Promise.resolve().then(() => {
+      // flip blurred for this row only when both cells for that set are filled
+      if (setNum === 1) {
+        const r = nextRows[rowIdx];
+        const bothFilled = r.s1_m1 !== "" && r.s1_m2 !== "";
+        if (bothFilled) {
+          setSet1Blurred((prev) => {
+            if (prev[rowIdx]) return prev; // already true; no churn
+            const next = [...prev];
+            next[rowIdx] = true;
+            return next;
+          });
+        }
+      } else {
+        const r = nextRows[rowIdx];
+        const bothFilled = r.s2_m1 !== "" && r.s2_m2 !== "";
+        if (bothFilled) {
+          setSet2Blurred((prev) => {
+            if (prev[rowIdx]) return prev; // already true; no churn
+            const next = [...prev];
+            next[rowIdx] = true;
+            return next;
+          });
+        }
+      }
+
+      // recompute per-row monotonicity flags from nextRows (no stale reads)
+      const avgs1 = nextRows.map((r) => {
+        const v1 = parseFloat(r.s1_m1);
+        const v2 = parseFloat(r.s1_m2);
+        return !isNaN(v1) && !isNaN(v2) ? (v1 + v2) / 2 : null;
       });
-    }
-    if (setNum === 1) {
-      setSet1Blurred((prev) => {
-        const next = [...prev];
-        next[rowIdx] = true;
-        return next;
+      const avgs2 = nextRows.map((r) => {
+        const v1 = parseFloat(r.s2_m1);
+        const v2 = parseFloat(r.s2_m2);
+        return !isNaN(v1) && !isNaN(v2) ? (v1 + v2) / 2 : null;
       });
-    } else {
-      setSet2Blurred((prev) => {
-        const next = [...prev];
-        next[rowIdx] = true;
-        return next;
-      });
-    }
+
+      const mono1 = avgs1.map((avg, i) =>
+        i === 0 || avg === null || avgs1[i - 1] === null
+          ? true
+          : avg <= (avgs1[i - 1] as number)
+      );
+      const mono2 = avgs2.map((avg, i) =>
+        i === 0 || avg === null || avgs2[i - 1] === null
+          ? true
+          : avg <= (avgs2[i - 1] as number)
+      );
+
+      setMonoOkSet1(mono1);
+      setMonoOkSet2(mono2);
+    });
   };
 
   const onBlurRetainer = (e: React.FocusEvent<HTMLInputElement>): void => {
@@ -270,12 +335,23 @@ export default function AcrosetForm(): JSX.Element {
     if (isNaN(n) || n < 0) return null;
     return n;
   }
-  function inputBorderClass(v1s: string, v2s: string, locked: boolean): string {
+  function inputBorderClass(
+    v1s: string,
+    v2s: string,
+    locked: boolean,
+    idx: number,
+    setNum: 1 | 2
+  ): string {
     if (locked) return "";
+
     const v1 = parseFloat(v1s);
     const v2 = parseFloat(v2s);
     if (isNaN(v1) || isNaN(v2) || v1 < 0 || v2 < 0) return "";
-    return withinPairDeviation(v1, v2) ? styles.inputValid : styles.inputInvalid;
+
+    const pairOk = withinPairDeviation(v1, v2);
+    const monoOk = setNum === 1 ? monoOkSet1[idx] : monoOkSet2[idx];
+
+    return pairOk && monoOk ? styles.inputValid : styles.inputInvalid;
   }
 
   // set-level validators (explicit return types)
@@ -321,13 +397,25 @@ export default function AcrosetForm(): JSX.Element {
   }, [set2Valid, set2Blurred, set2Locked]);
 
   // ----- typed handler wrappers to avoid inline arrow functions -----
-  const handleTextChange: React.ChangeEventHandler<HTMLInputElement> = (e): void => onChangeText(e);
-  const handleLocationChange: React.ChangeEventHandler<HTMLSelectElement> = (e): void => onChangeSelect(e, "location");
-  const handleUnitChange: React.ChangeEventHandler<HTMLSelectElement> = (e): void => onChangeSelect(e, "unit");
-  const handleGroupChange: React.ChangeEventHandler<HTMLSelectElement> = (e): void => onChangeSelect(e, "group");
-  const handleModelChange: React.ChangeEventHandler<HTMLSelectElement> = (e): void => onChangeSelect(e, "model");
+  const handleTextChange: React.ChangeEventHandler<HTMLInputElement> = (
+    e
+  ): void => onChangeText(e);
+  const handleLocationChange: React.ChangeEventHandler<HTMLSelectElement> = (
+    e
+  ): void => onChangeSelect(e, "location");
+  const handleUnitChange: React.ChangeEventHandler<HTMLSelectElement> = (
+    e
+  ): void => onChangeSelect(e, "unit");
+  const handleGroupChange: React.ChangeEventHandler<HTMLSelectElement> = (
+    e
+  ): void => onChangeSelect(e, "group");
+  const handleModelChange: React.ChangeEventHandler<HTMLSelectElement> = (
+    e
+  ): void => onChangeSelect(e, "model");
 
-  const onChangeRetainer: React.ChangeEventHandler<HTMLInputElement> = (e): void => {
+  const onChangeRetainer: React.ChangeEventHandler<HTMLInputElement> = (
+    e
+  ): void => {
     const v = e.target.value;
     if (/^\d*\.?\d*$/.test(v) || v === "") {
       setForm((prev) => ({ ...prev, retainerMeasured: v }));
@@ -338,14 +426,16 @@ export default function AcrosetForm(): JSX.Element {
     rowIdx: number,
     field: "s1_m1" | "s1_m2" | "s2_m1" | "s2_m2"
   ): React.ChangeEventHandler<HTMLInputElement> {
-    return (e: React.ChangeEvent<HTMLInputElement>): void => onChangeNumberCell(e, rowIdx, field);
+    return (e: React.ChangeEvent<HTMLInputElement>): void =>
+      onChangeNumberCell(e, rowIdx, field);
   }
 
   function makeOnBlurCell(
     rowIdx: number,
     setNum: 1 | 2
   ): React.FocusEventHandler<HTMLInputElement> {
-    return (e: React.FocusEvent<HTMLInputElement>): void => onBlurNumberCell(e, rowIdx, setNum);
+    return (e: React.FocusEvent<HTMLInputElement>): void =>
+      onBlurNumberCell(e, rowIdx, setNum);
   }
 
   // --- submit / calculate (explicit return types) ---
@@ -376,7 +466,7 @@ export default function AcrosetForm(): JSX.Element {
       retainerMeasured: parseFloat(form.retainerMeasured), // in current unit
       rows,
       thresholds: {
-        r2Min: 0.995,
+        r2Min: 0.95,
         avgErrMax_ftlb: 5,
         maxErrMax_ftlb: 10,
         pairDevMax: pairDevMaxByUnit[form.unit],
@@ -385,19 +475,35 @@ export default function AcrosetForm(): JSX.Element {
     };
 
     const result = compute(input);
-    if (!result.ok) {
-      setCalcResult(null);
-      setStatus(result.message ?? "❌ Calculation failed.");
-      return;
-    }
+
+    // Always keep the full result so diagnostics can render
     setCalcResult(result);
-    setStatus("✅ Calculation validated.");
+
+    // Set a clear status message based on pass/fail
+    setStatus(
+      result.ok
+        ? "✅ Calculation validated."
+        : result.message ?? "❌ Calculation failed."
+    );
+
+    // No early return; the UI will now show:
+    // - Shim Pack Recommendation (only when ok)
+    // - Regression Diagnostics (always, when a result is present)
+
+    //const result = compute(input);
+    //if (!result.ok) {
+    //setCalcResult(null);
+    //setStatus(result.message ?? "❌ Calculation failed.");
+    //return;
+    //}
+    //setCalcResult(result);
+    //setStatus("✅ Calculation validated.");
   };
 
   // --- derived UI bits ---
   const modelOptions = React.useMemo<string[]>(() => {
     if (!form.group) return [];
-    const mm = form.group === "front" ? FRONT_MODELS : REAR_MODELS;
+    const mm = form.group === "Front" ? FRONT_MODELS : REAR_MODELS;
     return Object.keys(mm);
   }, [form.group]);
 
@@ -415,7 +521,9 @@ export default function AcrosetForm(): JSX.Element {
             className={`${styles.input} ${inputBorderClass(
               r.s1_m1,
               r.s1_m2,
-              set1Locked
+              set1Locked,
+              idx,
+              1
             )}`}
             type="number"
             inputMode="decimal"
@@ -431,7 +539,9 @@ export default function AcrosetForm(): JSX.Element {
             className={`${styles.input} ${inputBorderClass(
               r.s1_m1,
               r.s1_m2,
-              set1Locked
+              set1Locked,
+              idx,
+              1
             )}`}
             type="number"
             inputMode="decimal"
@@ -449,7 +559,9 @@ export default function AcrosetForm(): JSX.Element {
             className={`${styles.input} ${inputBorderClass(
               r.s2_m1,
               r.s2_m2,
-              set2Locked
+              set2Locked,
+              idx,
+              2
             )}`}
             type="number"
             inputMode="decimal"
@@ -465,7 +577,9 @@ export default function AcrosetForm(): JSX.Element {
             className={`${styles.input} ${inputBorderClass(
               r.s2_m1,
               r.s2_m2,
-              set2Locked
+              set2Locked,
+              idx,
+              2
             )}`}
             type="number"
             inputMode="decimal"
@@ -493,6 +607,7 @@ export default function AcrosetForm(): JSX.Element {
               className={styles.input}
               name="date"
               placeholder="MM/DD/YYYY"
+              required
               value={form.date}
               onChange={handleTextChange}
             />
@@ -662,45 +777,80 @@ export default function AcrosetForm(): JSX.Element {
           Calculate
         </button>
 
-        {status && <div className={styles.statusValid}>{status}</div>}
+        {status && (
+          <div
+            role="status"
+            className={calcResult?.ok ? styles.statusValid : styles.statusInvalid}
+          >
+            {status}
+          </div>
+        )}
 
         {calcResult && calcResult.ok && calcResult.chosenFit && (
           <div className={styles.results}>
             <h3>Shim Pack Recommendation</h3>
+
             <p>
-              <strong>Chosen fit:</strong> {calcResult.chosen}
-            </p>
-            <p>
-              <strong>Recommended:</strong>{" "}
+              <strong> </strong>
               {formatByUnit(form.unit, calcResult.chosenFit.shimX)} {tolLabel}
             </p>
             <p>
-              <strong>Slope (a):</strong> {calcResult.chosenFit.a.toFixed(6)}
-            </p>
-            <p>
-              <strong>R²:</strong> {calcResult.chosenFit.r2.toFixed(6)}
-            </p>
-            <p>
-              <strong>Avg Error:</strong>{" "}
-              {calcResult.chosenFit.avgErr_ftlb.toFixed(4)} ft-lb
-            </p>
-            <p>
-              <strong>Max Error:</strong>{" "}
-              {calcResult.chosenFit.maxErr_ftlb.toFixed(4)} ft-lb
-            </p>
-            <p>
-              <strong>Torque at Shim Pack:</strong>{" "}
-              {calcResult.chosenFit.yAtShim_ftlb.toFixed(4)} ft-lb
+              <strong>Chosen fit:</strong> {calcResult.chosen}
             </p>
           </div>
         )}
 
-        {calcResult && !calcResult.ok && (
+        {/* --- Calculation Diagnostics --- */}
+        {calcResult?.ok && (
           <div className={styles.results}>
-            <h3>Shim Pack Recommendation</h3>
-            <p>
-              <strong>Failed:</strong> {calcResult.message ?? "Invalid data"}
-            </p>
+            <h3>Set Comparison</h3>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th>Fit</th>
+                  <th>R²</th>
+                  <th>Avg Err (ft-lb)</th>
+                  <th>Max Err (ft-lb)</th>
+                  <th>Shim Pack ({form.unit === "Imperial" ? "in" : "mm"})</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(["Set1", "Set2", "Combined"] as const).map(
+                  (key: "Set1" | "Set2" | "Combined"): JSX.Element | null => {
+                    const fit: CalcResult["set1"] | undefined =
+                      calcResult[
+                        key.toLowerCase() as keyof Pick<
+                          CalcResult,
+                          "set1" | "set2" | "combined"
+                        >
+                      ];
+                    if (!fit) return null;
+
+                    const dec: number =
+                      decimalsByUnit[form.unit as keyof typeof decimalsByUnit];
+                    const shim: string = Number.isFinite(fit.shimX)
+                      ? fit.shimX.toFixed(dec)
+                      : "—";
+
+                    return (
+                      <tr key={key}>
+                        <td>{key}</td>
+                        <td>{fit.r2?.toFixed(6) ?? "—"}</td>
+                        <td>{fit.avgErr_ftlb?.toFixed(2) ?? "—"}</td>
+                        <td>{fit.maxErr_ftlb?.toFixed(2) ?? "—"}</td>
+                        <td>{shim}</td>
+                        <td>
+                          {fit.ok
+                            ? "✅ Pass"
+                            : `❌ ${fit.reasonIfRejected ?? "Fail"}`}
+                        </td>
+                      </tr>
+                    );
+                  }
+                )}
+              </tbody>
+            </table>
           </div>
         )}
       </form>

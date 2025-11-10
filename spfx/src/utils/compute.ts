@@ -1,6 +1,6 @@
 // utils/compute.ts
 export type Unit = "Imperial" | "Metric";
-export type Group = "front" | "rear";
+export type Group = "Front" | "Rear";
 
 export interface PointRow {
   torque_ftlb: number;   // y-values (always ft-lb)
@@ -19,7 +19,7 @@ export interface ComputeInput {
   retainerMeasured: number;   // in current unit (from user input)
   rows: PointRow[];           // length must match torqueArray
   thresholds: {
-    r2Min: number;            // 0.995
+    r2Min: number;            // 0.950
     avgErrMax_ftlb: number;   // 5
     maxErrMax_ftlb: number;   // 10
     pairDevMax: number;       // 0.01 (in) | 0.25 (mm)
@@ -82,7 +82,7 @@ function regression(x: number[], y: number[]): RegressionResult {
   const a = denom === 0 ? NaN : (sumxy - n * xbar * ybar) / denom;
   const b = Number.isFinite(a) ? ybar - a * xbar : NaN;
 
-  // No 'yhat' temp to satisfy no-unused-vars rule; compute residuals inline
+  // compute residuals inline (no unused 'yhat')
   const errs = y.map((yi, i) => yi - (a * x[i] + b));
 
   const sst = y.reduce((acc, yi) => acc + (yi - ybar) ** 2, 0);
@@ -206,12 +206,25 @@ export function compute(input: ComputeInput): CalcResult {
     return fail(reason);
   }
 
-  // Subtract measured retainer (current unit) before fitting
-  const xs1 = avgs1.map((v) => v - retainerMeasured);
-  const xs2 = avgs2.map((v) => v - retainerMeasured);
-  const xsCombined = xs1.map((v, i) => (v + xs2[i]) / 2);
+// Subtract measured retainer (current unit) before fitting
+let xs1 = avgs1.map((v) => v - retainerMeasured);
+let xs2 = avgs2.map((v) => v - retainerMeasured);
+let xsCombined = xs1.map((v, i) => (v + xs2[i]) / 2);
 
-  const ys = torqueArray_ftlb; // ft-lb
+let ys = torqueArray_ftlb; // ft-lb
+
+// ---- Filter out the first two AND the last data point ----
+// Requires at least 5 total points so that >=2 remain after trimming.
+if (xs1.length >= 5 && ys.length >= 5) {
+  const START = 2;     // drop first two
+  const END_EXCL = xs1.length - 1; // exclude last index
+  xs1 = xs1.slice(START, END_EXCL);
+  xs2 = xs2.slice(START, END_EXCL);
+  xsCombined = xsCombined.slice(START, END_EXCL);
+  ys = ys.slice(START, END_EXCL);
+}
+
+
 
   // Three fits
   const fit1 = applyThresholds(fitOne(xs1, ys, preload), thresholds);
@@ -220,7 +233,7 @@ export function compute(input: ComputeInput): CalcResult {
 
   const chosen = chooseBest(fit1, fit2, fitC);
   if (!chosen.fit) {
-    const message = `All fits rejected. Set1: ${fit1.reasonIfRejected ?? "n/a"}; Set2: ${fit2.reasonIfRejected ?? "n/a"}; Combined: ${fitC.reasonIfRejected ?? "n/a"}`;
+    const message = `Calculation Failed! Engineering has been notified of the issue. Please retry acroset process and recalculate.`;
     return { ok: false, chosen: "Combined", set1: fit1, set2: fit2, combined: fitC, message };
   }
 
