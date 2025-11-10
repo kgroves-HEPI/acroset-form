@@ -1,60 +1,60 @@
 {
   "777 (Dry)": {
-    "group" : "front",
+    "group" : "Front",
     "retainer": "777Dry-777Wet-frontRetainer",
     "preload": "777Dry-frontPreload",
     "TorqueArray": "657R-773R-777FR-785R-TorqueArray"
   },
   "777 (Wet)": {
-    "group" : "front",
+    "group" : "Front",
     "retainer": "777Dry-777Wet-frontRetainer",
     "preload": "777Wet-frontPreload",
     "TorqueArray": "657R-773R-777FR-785R-TorqueArray"
   },
   "785": {
-    "group" : "front",
+    "group" : "Front",
     "retainer": "785-789-frontRetainer",  
     "preload": "785-frontPreload",
     "TorqueArray": "785F-789F-793F-TorqueArray"
   },
   "789": {
-    "group" : "front",
+    "group" : "Front",
     "retainer": "785-789-frontRetainer",  
     "preload": "789-frontPreload",
     "TorqueArray": "785F-789F-793F-TorqueArray"
   },
   "793": {
-    "group" : "front",
+    "group" : "Front",
     "retainer": "793STD-793EL-frontRetainer",  
     "preload": "793STD-frontPreload",
     "TorqueArray": "785F-789F-793F-TorqueArray"
   },
   "793EL": {
-    "group" : "front",
+    "group" : "Front",
     "retainer": "793STD-793EL-frontRetainer",  
     "preload": "793EL-frontPreload",
     "TorqueArray": "785F-789F-793F-TorqueArray"
   },
   "797": {
-    "group" : "front",
+    "group" : "Front",
     "retainer": "797-frontRetainer",  
     "preload": "797-frontPreload",
     "TorqueArray": "797F-TorqueArray"
   },
   "730E": {
-    "group" : "front",
+    "group" : "Front",
     "retainer": "730E-830E-frontRetainer",  
     "preload": "730E-frontPreload",
     "TorqueArray": "730EF-TorqueArray"
   },
   "830E": {
-    "group" : "front",
+    "group" : "Front",
     "retainer": "730E-830E-frontRetainer",  
     "preload": "830E-frontPreload",
     "TorqueArray": "830EF-930EF-960EF-793RSTD-TorqueArray"
   },
   "930E": {
-    "group" : "front",
+    "group" : "Front",
     "retainer": "930E-frontRetainer",  
     "preload": "930E-frontPreload",
     "TorqueArray": "830EF-930EF-960EF-793RSTD-TorqueArray"
