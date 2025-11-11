@@ -1,17 +1,19 @@
-import { spfi, SPFI } from "@pnp/sp";
-import { SPFx } from "@pnp/sp/presets/all";
+// pnpjsConfig.ts
 import { WebPartContext } from "@microsoft/sp-webpart-base";
+import { spfi, SPFI, SPFx } from "@pnp/sp"; // ← fix: import SPFx from @pnp/sp
 
-let _sp: SPFI | undefined = undefined;
+import "@pnp/sp/webs";
+import "@pnp/sp/lists";
+import "@pnp/sp/items";
 
-export const getSP = (context?: WebPartContext): SPFI => {
-  if (_sp === undefined && context) {
-    _sp = spfi().using(SPFx(context));
-  }
+let _sp: SPFI | undefined;
 
-  if (!_sp) {
-    throw new Error("PnPjs not initialized. Call getSP(context) first.");
-  }
+export const initSP = (context: WebPartContext): SPFI => {
+  _sp = spfi().using(SPFx(context));
+  return _sp;
+};
 
+export const getSP = (): SPFI => {
+  if (!_sp) throw new Error("PnPjs not initialized. Call initSP(context) in onInit().");
   return _sp;
 };

@@ -9,6 +9,9 @@ import {
   PointRow,
 } from "../../../utils/compute";
 
+import { getSP } from "../../../pnpjsConfig";
+
+
 // --- data (adjust paths to match your project) ---
 import modelFront from "../../../data/modelFrontList.json";
 import modelRear from "../../../data/modelRearList.json";
@@ -18,6 +21,10 @@ import torqueArrayList from "../../../data/torqueArrayList.json";
 import unitsList from "../../../data/unitsList.json";
 import groupList from "../../../data/groupList.json";
 import locationList from "../../../data/locationList.json";
+
+interface AcrosetFormProps {
+  listTitle: string;
+}
 
 // --- types matching your JSONs ---
 type UnitValue = { in: number; mm: number };
@@ -86,7 +93,7 @@ type FormState = {
   rows: Row[];
 };
 
-export default function AcrosetForm(): JSX.Element {
+export default function AcrosetForm({ listTitle }: AcrosetFormProps): JSX.Element  {
   // derive typed data
   const FRONT_MODELS = modelFront as unknown as ModelMap; // front
   const REAR_MODELS = modelRear as unknown as ModelMap; // rear
@@ -112,7 +119,17 @@ export default function AcrosetForm(): JSX.Element {
   const [monoOkSet1, setMonoOkSet1] = React.useState<boolean[]>([]);
   const [monoOkSet2, setMonoOkSet2] = React.useState<boolean[]>([]);
 
-  
+  //const testConnectivity = async (): Promise<void> => {
+  //try {
+   // const sp = getSP();
+   // const list = await sp.web.lists.getByTitle(listTitle)(); // throws if wrong / no permission
+    //const anyItem = await sp.web.lists.getByTitle(listTitle).items.select("Id").top(1)();
+    //alert(`✅ Connected to "${list.Title}". Read ok, items found: ${anyItem.length}`);
+  //} catch (e: any) {
+    //alert(`❌ Connection failed: ${e?.message ?? e}`);
+  //}
+//};
+
 
   const [form, setForm] = React.useState<FormState>({
     date: "",
@@ -439,11 +456,39 @@ export default function AcrosetForm(): JSX.Element {
   }
 
   // --- submit / calculate (explicit return types) ---
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>): void => {
-    e.preventDefault();
-    console.log("Form payload:", form);
-    alert("Form captured locally. Check console for payload.");
-  };
+const handleSubmit = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
+  e.preventDefault();
+
+  try {
+    const sp = getSP();
+
+    // Map to your list’s INTERNAL column names.
+    // Update these to match your list schema.
+    const payload: Record<string, any> = {
+      Title: `${form.modelKey || "Model"} - ${form.wo || "WO"}`, // SharePoint requires Title
+      Date: form.date,                 // DateTime column (or change to your internal name)
+      Mechanic: form.mechanic,             // Single line of text
+      WorkOrder: form.wo,                  // Single line of text
+      Location: form.location,             // Choice/Text
+      Unit: form.unit,               // Choice/Text
+      Group: form.group,               // Choice/Text
+      Model: form.modelKey,             // Single line of text
+      RetainerMeasured: parseFloat(form.retainerMeasured), // Number
+      RowsJson: JSON.stringify(form.rows), // Multi-line text (plain) or Note column
+      CalcStatus: status ?? "",            // Single line of text
+      ShimPack: calcResult?.ok ? calcResult?.chosenFit?.shimX ?? null : null, // Number
+      ChosenFit: calcResult?.ok ? calcResult?.chosen ?? "" : "", // Text
+    };
+
+    const addRes = await sp.web.lists.getByTitle(listTitle).items.add(payload);
+    alert(`✅ Saved. Item ID: ${addRes.data.Id}`);
+    console.log("SharePoint add result:", addRes);
+  } catch (err: any) {
+    console.error(err);
+    alert(`❌ Save failed: ${err?.message ?? err}`);
+  }
+};
+
 
   const handleCalculate = (): void => {
     if (!modelSpec) return;
