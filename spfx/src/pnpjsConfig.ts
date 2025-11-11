@@ -10,6 +10,7 @@ let _sp: SPFI | undefined;
 
 export const initSP = (context: WebPartContext): SPFI => {
   _sp = spfi().using(SPFx(context));
+  console.log("[PnPjs] initSP for", context.pageContext.web.absoluteUrl);
   return _sp;
 };
 

@@ -6,9 +6,9 @@ import {
   PropertyPaneTextField
 } from '@microsoft/sp-property-pane';
 import { BaseClientSideWebPart } from '@microsoft/sp-webpart-base';
+import { initSP } from "../../pnpjsConfig";
 
-
-import * as strings from 'AcrosetFormWebPartStrings';
+//import * as strings from 'AcrosetFormWebPartStrings';
 import AcrosetForm from './components/AcrosetForm';
 
 
@@ -24,6 +24,12 @@ export interface IAcrosetFormWebPartProps {
 }
 
 export default class AcrosetFormWebPart extends BaseClientSideWebPart<IAcrosetFormWebPartProps> {
+
+public onInit(): Promise<void> {
+    return super.onInit().then(() => {
+      initSP(this.context); // <-- THIS must run before React uses getSP()
+    });
+  }
 
 public render(): void {
   const element = React.createElement(AcrosetForm, {
@@ -44,18 +50,14 @@ public render(): void {
 
   protected getPropertyPaneConfiguration(): IPropertyPaneConfiguration {
     return {
-      pages: [
-        {
-          header: {
-            description: strings.PropertyPaneDescription
-          },
-          groups: [
-            {
-              groupName: strings.BasicGroupName,
-              groupFields: [
-                PropertyPaneTextField('description', {
-                  label: strings.DescriptionFieldLabel
-                })
+      pages: [{
+        header: { description: "Settings" },
+        groups: [{
+          groupFields: [
+            PropertyPaneTextField("listTitle", {
+              label: "Target SharePoint list title",
+              description: "Display name (e.g., Acroset Log)"
+            })
               ]
             }
           ]

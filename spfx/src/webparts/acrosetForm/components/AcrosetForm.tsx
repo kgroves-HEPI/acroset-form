@@ -11,7 +11,6 @@ import {
 
 import { getSP } from "../../../pnpjsConfig";
 
-
 // --- data (adjust paths to match your project) ---
 import modelFront from "../../../data/modelFrontList.json";
 import modelRear from "../../../data/modelRearList.json";
@@ -64,14 +63,6 @@ function formatByUnit(u: Unit, n: number): string {
   return n.toFixed(decimalsByUnit[u]);
 }
 
-function todayMMDDYYYY(): string {
-  const d = new Date();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  const yyyy = d.getFullYear();
-  return `${mm}/${dd}/${yyyy}`;
-}
-
 // --- row shape for dynamic torque arrays ---
 type Row = {
   torque_ftlb: number;
@@ -93,7 +84,9 @@ type FormState = {
   rows: Row[];
 };
 
-export default function AcrosetForm({ listTitle }: AcrosetFormProps): JSX.Element  {
+export default function AcrosetForm({
+  listTitle,
+}: AcrosetFormProps): JSX.Element {
   // derive typed data
   const FRONT_MODELS = modelFront as unknown as ModelMap; // front
   const REAR_MODELS = modelRear as unknown as ModelMap; // rear
@@ -119,20 +112,24 @@ export default function AcrosetForm({ listTitle }: AcrosetFormProps): JSX.Elemen
   const [monoOkSet1, setMonoOkSet1] = React.useState<boolean[]>([]);
   const [monoOkSet2, setMonoOkSet2] = React.useState<boolean[]>([]);
 
+  const [saving, setSaving] = React.useState(false);
+  // near your other useState inits, if you want today's default:
+  const todayYmd = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+
+
   //const testConnectivity = async (): Promise<void> => {
   //try {
-   // const sp = getSP();
-   // const list = await sp.web.lists.getByTitle(listTitle)(); // throws if wrong / no permission
-    //const anyItem = await sp.web.lists.getByTitle(listTitle).items.select("Id").top(1)();
-    //alert(`✅ Connected to "${list.Title}". Read ok, items found: ${anyItem.length}`);
+  // const sp = getSP();
+  // const list = await sp.web.lists.getByTitle(listTitle)(); // throws if wrong / no permission
+  //const anyItem = await sp.web.lists.getByTitle(listTitle).items.select("Id").top(1)();
+  //alert(`✅ Connected to "${list.Title}". Read ok, items found: ${anyItem.length}`);
   //} catch (e: any) {
-    //alert(`❌ Connection failed: ${e?.message ?? e}`);
+  //alert(`❌ Connection failed: ${e?.message ?? e}`);
   //}
-//};
-
+  //};
 
   const [form, setForm] = React.useState<FormState>({
-    date: "",
+    date: todayYmd,
     mechanic: "",
     wo: "",
     location: "",
@@ -142,10 +139,6 @@ export default function AcrosetForm({ listTitle }: AcrosetFormProps): JSX.Elemen
     retainerMeasured: "",
     rows: [],
   });
-
-  React.useEffect(() => {
-  setForm((prev) => (prev.date ? prev : { ...prev, date: todayMMDDYYYY() }));
-}, []);
 
   // derive model spec from group/modelKey
   const modelSpec: ModelSpec | null = React.useMemo<ModelSpec | null>(() => {
@@ -456,93 +449,88 @@ export default function AcrosetForm({ listTitle }: AcrosetFormProps): JSX.Elemen
   }
 
   // --- submit / calculate (explicit return types) ---
-const handleSubmit = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
-  e.preventDefault();
+  const handleSubmit = async (
+    e: React.FormEvent<HTMLFormElement>
+  ): Promise<void> => {
+    e.preventDefault();
+    if (saving) return;
+    setSaving(true);
 
-  try {
-    const sp = getSP();
+    try {
+      // --- build input & run calculations  ---
+      const rows: PointRow[] = form.rows.map((r) => ({
+        torque_ftlb: r.torque_ftlb,
+        s1_m1: parseNonNeg(r.s1_m1) ?? undefined,
+        s1_m2: parseNonNeg(r.s1_m2) ?? undefined,
+        s2_m1: parseNonNeg(r.s2_m1) ?? undefined,
+        s2_m2: parseNonNeg(r.s2_m2) ?? undefined,
+      }));
+      const input: ComputeInput = {
+        unit: form.unit,
+        group: form.group as Group,
+        modelKey: form.modelKey,
+        torqueArray_ftlb: torqueArray,
+        preload: preloadValue,
+        retainerMeasured: parseFloat(form.retainerMeasured),
+        rows,
+        thresholds: {
+          r2Min: 0.95,
+          avgErrMax_ftlb: 5,
+          maxErrMax_ftlb: 10,
+          pairDevMax: pairDevMaxByUnit[form.unit],
+          enforceMonotonic: true,
+        },
+      };
 
-    // Map to your list’s INTERNAL column names.
-    // Update these to match your list schema.
-    const payload: Record<string, any> = {
-      Title: `${form.modelKey || "Model"} - ${form.wo || "WO"}`, // SharePoint requires Title
-      Date: form.date,                 // DateTime column (or change to your internal name)
-      Mechanic: form.mechanic,             // Single line of text
-      WorkOrder: form.wo,                  // Single line of text
-      Location: form.location,             // Choice/Text
-      Unit: form.unit,               // Choice/Text
-      Group: form.group,               // Choice/Text
-      Model: form.modelKey,             // Single line of text
-      RetainerMeasured: parseFloat(form.retainerMeasured), // Number
-      RowsJson: JSON.stringify(form.rows), // Multi-line text (plain) or Note column
-      CalcStatus: status ?? "",            // Single line of text
-      ShimPack: calcResult?.ok ? calcResult?.chosenFit?.shimX ?? null : null, // Number
-      ChosenFit: calcResult?.ok ? calcResult?.chosen ?? "" : "", // Text
-    };
+      const result = compute(input);
+      setCalcResult(result);
+      setStatus(
+        result.ok
+          ? "✅ Calculation validated."
+          : result.message ?? "❌ Calculation failed."
+      );
 
-    const addRes = await sp.web.lists.getByTitle(listTitle).items.add(payload);
-    alert(`✅ Saved. Item ID: ${addRes.data.Id}`);
-    console.log("SharePoint add result:", addRes);
-  } catch (err: any) {
-    console.error(err);
-    alert(`❌ Save failed: ${err?.message ?? err}`);
-  }
-};
+      const ymdToIso = (ymd: string): string | null => {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
+        return new Date(`${ymd}T12:00:00Z`).toISOString();
+      };
 
+      // inside handleSubmit, before building payload:
+      const dateIso = form.date ? ymdToIso(form.date) : null;
+      if (!dateIso) {
+        setStatus("❌ Invalid date. Pick a valid date.");
+        setSaving(false);
+        return;
+      }
 
-  const handleCalculate = (): void => {
-    if (!modelSpec) return;
+      // --- save to SharePoint regardless of pass/fail ---
+      //const sp = getSP();
+      //const LIST_TITLE = "Acroset Log"; // If you're passing a prop, use that instead.
+      const payload: Record<string, any> = {
+        Title: `${form.modelKey || "Model"} - ${form.wo || "WO"}`,
+        Date: dateIso,
+        Mechanic: form.mechanic,
+        WorkOrder: form.wo,
+        Location: form.location,
+        Group: form.group,
+        Model: form.modelKey,
+        Retainer: parseFloat(form.retainerMeasured),
+        Measurements: JSON.stringify(form.rows),
+        Status: result.ok ? "Pass" : result.message ?? "Fail",
+        // CalcOk: result.ok,           // (optional Yes/No column)
+        RecommendedShim: result.ok && result.chosenFit ? result.chosenFit.shimX : null,
+        ChosenFit: result.ok ? result.chosen ?? "" : "",
+        Units: form.unit,
+      };
 
-    // Build ComputeInput
-    const rows: PointRow[] = form.rows.map((r) => ({
-      torque_ftlb: r.torque_ftlb,
-      s1_m1: parseNonNeg(r.s1_m1) ?? undefined,
-      s1_m2: parseNonNeg(r.s1_m2) ?? undefined,
-      s2_m1: parseNonNeg(r.s2_m1) ?? undefined,
-      s2_m2: parseNonNeg(r.s2_m2) ?? undefined,
-    }));
-
-    const input: ComputeInput = {
-      unit: form.unit,
-      group: form.group as Group,
-      modelKey: form.modelKey,
-      torqueArray_ftlb: torqueArray,
-      preload: preloadValue, // in current unit
-      retainerMeasured: parseFloat(form.retainerMeasured), // in current unit
-      rows,
-      thresholds: {
-        r2Min: 0.95,
-        avgErrMax_ftlb: 5,
-        maxErrMax_ftlb: 10,
-        pairDevMax: pairDevMaxByUnit[form.unit],
-        enforceMonotonic: true,
-      },
-    };
-
-    const result = compute(input);
-
-    // Always keep the full result so diagnostics can render
-    setCalcResult(result);
-
-    // Set a clear status message based on pass/fail
-    setStatus(
-      result.ok
-        ? "✅ Calculation validated."
-        : result.message ?? "❌ Calculation failed."
-    );
-
-    // No early return; the UI will now show:
-    // - Shim Pack Recommendation (only when ok)
-    // - Regression Diagnostics (always, when a result is present)
-
-    //const result = compute(input);
-    //if (!result.ok) {
-    //setCalcResult(null);
-    //setStatus(result.message ?? "❌ Calculation failed.");
-    //return;
-    //}
-    //setCalcResult(result);
-    //setStatus("✅ Calculation validated.");
+      await getSP().web.lists.getByTitle(listTitle).items.add(payload);
+      // Optional: inline toast/message instead of alert
+    } catch (err: any) {
+      console.error(err);
+      setStatus(`❌ Save failed: ${err?.message ?? err}`);
+    } finally {
+      setSaving(false);
+    }
   };
 
   // --- derived UI bits ---
@@ -649,12 +637,11 @@ const handleSubmit = async (e: React.FormEvent<HTMLFormElement>): Promise<void> 
           <label className={styles.label}>
             Date
             <input
+              type="date"
+              value={form.date || ""} // "YYYY-MM-DD"
+              onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
               className={styles.input}
-              name="date"
-              placeholder="MM/DD/YYYY"
-              required
-              value={form.date}
-              onChange={handleTextChange}
+              required // optional, if you want to force a date
             />
           </label>
 
@@ -807,10 +794,10 @@ const handleSubmit = async (e: React.FormEvent<HTMLFormElement>): Promise<void> 
         </div>
 
         <button
-          type="button"
+          type="submit"
           className={styles.button}
-          onClick={handleCalculate}
           disabled={
+            saving || // ⬅ prevent double clicks
             !form.location ||
             !form.group ||
             !form.modelKey ||
@@ -819,13 +806,15 @@ const handleSubmit = async (e: React.FormEvent<HTMLFormElement>): Promise<void> 
             !set2Valid
           }
         >
-          Calculate
+          {saving ? "Saving…" : "Calculate & Submit"}
         </button>
 
         {status && (
           <div
             role="status"
-            className={calcResult?.ok ? styles.statusValid : styles.statusInvalid}
+            className={
+              calcResult?.ok ? styles.statusValid : styles.statusInvalid
+            }
           >
             {status}
           </div>

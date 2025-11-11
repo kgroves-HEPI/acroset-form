@@ -4,8 +4,8 @@
   "https": true,
   "serveConfigurations": {
     "default": { "pageUrl": "https://localhost:4321/temp/workbench.html" },
-    "home":  { "pageUrl": "https://{tenantDomain}/_layouts/workbench.aspx" },
-    "tenant":  { "pageUrl": "https://hepartsint.sharepoint.com/_layouts/15/workbench.aspx?debug=true&noredir=true&debugManifestsFile=https://localhost:4321/temp/manifests.js" }
+    "home":  { "pageUrl": "https://hepartsint.sharepoint.com/_layouts/15/workbench.aspx?debug=true&noredir=true&debugManifestsFile=https://localhost:4321/temp/manifests.js"  },
+    "tenant":  { "pageUrl": "https://hepartsint.sharepoint.com/teams/MSUSEngineering/_layouts/15/workbench.aspx?debug=true&noredir=true&debugManifestsFile=https%3A%2F%2Flocalhost%3A4321%2Ftemp%2Fmanifests.js"}
 
   }
 }
