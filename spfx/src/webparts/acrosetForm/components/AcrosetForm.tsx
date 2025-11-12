@@ -21,6 +21,294 @@ import unitsList from "../../../data/unitsList.json";
 import groupList from "../../../data/groupList.json";
 import locationList from "../../../data/locationList.json";
 
+// CSV BLOCK
+import { Guid } from "@microsoft/sp-core-library";
+
+type FitId = "Set1" | "Set2" | "Combined";
+type FitStats = CalcResult["set1"];
+
+type RowMeas = {
+  torque_ftlb: number;
+  s1_m1: string | number;
+  s1_m2: string | number;
+  s2_m1: string | number;
+  s2_m2: string | number;
+};
+
+const RESULTS_FOLDER = "/teams/MSUSEngineering/Acroset Data/Results";
+const MEASUREMENTS_FOLDER = "/teams/MSUSEngineering/Acroset Data/Measurements";
+
+const csvQuote = (v: any) => {
+  if (v === null || v === undefined) return "";
+  const s = String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+const csvLine = (arr: (string | number)[]) =>
+  arr.map(csvQuote).join(",") + "\n";
+
+const toNumberOrBlank = (v: any) =>
+  Number.isFinite(Number(v)) ? Number(v) : "";
+
+// Build Summary CSV (one row) with exact headers approved
+function buildSummaryCsv(args: {
+  run_id: string;
+  date_iso: string;
+  mechanic_name: string;
+  work_order: string;
+  location: string;
+  units: Unit;
+  group: string;
+  model: string;
+  preload_ftlb: number;
+  retainer_measured_value: number | string;
+  result: CalcResult;
+}) {
+  const {
+    run_id,
+    date_iso,
+    mechanic_name,
+    work_order,
+    location,
+    units,
+    group,
+    model,
+    preload_ftlb,
+    retainer_measured_value,
+    result,
+  } = args;
+
+  const unitShim = units === "Imperial" ? "in" : "mm";
+  const chosen_fit: FitId | "" =
+    result.ok && result.chosen ? result.chosen : "";
+  const byFit = (id: FitId): FitStats | undefined =>
+    id === "Set1" ? result.set1 : id === "Set2" ? result.set2 : result.combined;
+
+  const chosenStats = chosen_fit ? byFit(chosen_fit) : undefined;
+  const chosen_shim_value = chosenStats?.shimX ?? "";
+  const calc_status = result.ok ? "Pass" : "Fail";
+
+  const extract = (fs?: FitStats) => {
+    const anyFs = fs as any; // allow optional fields not in the TS type
+    return {
+      slope: toNumberOrBlank(anyFs?.slope),
+      intercept: toNumberOrBlank(anyFs?.intercept),
+      r2: toNumberOrBlank(anyFs?.r2),
+      avg: toNumberOrBlank(anyFs?.avgErr_ftlb),
+      max: toNumberOrBlank(anyFs?.maxErr_ftlb),
+      shim: toNumberOrBlank(anyFs?.shimX),
+      status: anyFs?.ok === undefined ? "" : anyFs.ok ? "Pass" : "Fail",
+      reason: anyFs?.ok ? "" : anyFs?.reasonIfRejected ?? "",
+    };
+  };
+
+  const s1 = extract(result.set1);
+  const s2 = extract(result.set2);
+  const sc = extract(result.combined);
+
+  let csv = "";
+  // headers (exact)
+  csv += csvLine([
+    "run_id",
+    "date_iso",
+    "mechanic_name",
+    "work_order",
+    "location",
+    "units",
+    "group",
+    "model",
+    "preload_ftlb",
+    "retainer_measured_value",
+    "retainer_measured_unit",
+    "calc_status",
+    "chosen_fit",
+    "chosen_shim_value",
+    "chosen_shim_unit",
+    "set1_slope",
+    "set1_intercept",
+    "set1_r2",
+    "set1_avg_err_ftlb",
+    "set1_max_err_ftlb",
+    "set1_shim_value",
+    "set1_shim_unit",
+    "set1_status",
+    "set1_reject_reason",
+    "set2_slope",
+    "set2_intercept",
+    "set2_r2",
+    "set2_avg_err_ftlb",
+    "set2_max_err_ftlb",
+    "set2_shim_value",
+    "set2_shim_unit",
+    "set2_status",
+    "set2_reject_reason",
+    "combined_slope",
+    "combined_intercept",
+    "combined_r2",
+    "combined_avg_err_ftlb",
+    "combined_max_err_ftlb",
+    "combined_shim_value",
+    "combined_shim_unit",
+    "combined_status",
+    "combined_reject_reason",
+  ]);
+
+  // single data row
+  csv += csvLine([
+    run_id,
+    date_iso,
+    mechanic_name,
+    work_order,
+    location,
+    units,
+    group,
+    model,
+    preload_ftlb,
+    retainer_measured_value,
+    units === "Imperial" ? "in" : "mm",
+    calc_status,
+    chosen_fit,
+    chosen_shim_value,
+    unitShim,
+    s1.slope,
+    s1.intercept,
+    s1.r2,
+    s1.avg,
+    s1.max,
+    s1.shim,
+    unitShim,
+    s1.status,
+    s1.reason,
+    s2.slope,
+    s2.intercept,
+    s2.r2,
+    s2.avg,
+    s2.max,
+    s2.shim,
+    unitShim,
+    s2.status,
+    s2.reason,
+    sc.slope,
+    sc.intercept,
+    sc.r2,
+    sc.avg,
+    sc.max,
+    sc.shim,
+    unitShim,
+    sc.status,
+    sc.reason,
+  ]);
+
+  return csv;
+}
+
+// Build Measurements CSV (long/tidy) with exact headers approved
+function buildMeasurementsCsv(args: {
+  run_id: string;
+  rows: RowMeas[];
+  units: Unit;
+}) {
+  const { run_id, rows, units } = args;
+  const vUnit = units === "Imperial" ? "in" : "mm";
+
+  let csv = "";
+  csv += csvLine([
+    "run_id",
+    "torque_index",
+    "torque_ftlb",
+    "set_id",
+    "meas_num",
+    "value",
+    "value_unit",
+  ]);
+
+  rows.forEach((r, idx) => {
+    const i = idx + 1;
+    const torque = toNumberOrBlank(r.torque_ftlb);
+
+    // Set1 meas1 & meas2
+    csv += csvLine([
+      run_id,
+      i,
+      torque,
+      "Set1",
+      1,
+      toNumberOrBlank(r.s1_m1),
+      vUnit,
+    ]);
+    csv += csvLine([
+      run_id,
+      i,
+      torque,
+      "Set1",
+      2,
+      toNumberOrBlank(r.s1_m2),
+      vUnit,
+    ]);
+
+    // Set2 meas1 & meas2
+    csv += csvLine([
+      run_id,
+      i,
+      torque,
+      "Set2",
+      1,
+      toNumberOrBlank(r.s2_m1),
+      vUnit,
+    ]);
+    csv += csvLine([
+      run_id,
+      i,
+      torque,
+      "Set2",
+      2,
+      toNumberOrBlank(r.s2_m2),
+      vUnit,
+    ]);
+  });
+
+  return csv;
+}
+
+async function uploadCsvToFolder(
+  folderServerRelativePath: string,
+  fileName: string,
+  csvText: string
+) {
+  const sp = getSP();
+  const webAny: any = sp.web as any;
+
+  // 1) Resolve the folder object (new or old API)
+  const folder =
+    webAny.getFolderByServerRelativePath?.(folderServerRelativePath) ||
+    webAny.getFolderByServerRelativeUrl?.(folderServerRelativePath);
+
+  if (!folder) {
+    throw new Error("Folder API not available. Ensure '@pnp/sp/folders' is imported.");
+  }
+
+// 2) Upload the file (prefer addUsingPath, fallback to add)
+const filesAny: any = folder.files;
+if (filesAny?.addUsingPath) {
+  await filesAny.addUsingPath(fileName, csvText, { Overwrite: true });
+} else {
+  await filesAny.add(fileName, csvText, true);
+}
+
+  // 3) Read back file info using path or url API
+  const fileRef = `${folderServerRelativePath}/${fileName}`;
+  const fileSel =
+    webAny.getFileByServerRelativePath?.(fileRef) ||
+    webAny.getFileByServerRelativeUrl?.(fileRef);
+
+  const file = await fileSel
+  .select("ServerRelativeUrl", "LinkingUri", "Name", "UniqueId")();
+
+  const absUrl = file.LinkingUri ?? `${window.location.origin}${file.ServerRelativeUrl}`;
+  return { absUrl, uniqueId: file.UniqueId as string, name: file.Name as string };
+}
+
+
+
 interface AcrosetFormProps {
   listTitle: string;
 }
@@ -115,7 +403,6 @@ export default function AcrosetForm({
   const [saving, setSaving] = React.useState(false);
   // near your other useState inits, if you want today's default:
   const todayYmd = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
-
 
   //const testConnectivity = async (): Promise<void> => {
   //try {
@@ -503,28 +790,77 @@ export default function AcrosetForm({
         return;
       }
 
+      // 2) Prepare run + common fields
+      const run_id = Guid.newGuid().toString();
+      const date_iso_ui = form.date; // "YYYY-MM-DD" coming from your UI
+      const units: Unit = form.unit as Unit; // "Imperial" | "Metric"
+      const preload_ftlb =
+        typeof input.preload === "number" ? input.preload : preloadValue;
+      const retainer_measured_value = Number(form.retainerMeasured ?? 0);
+
+      // 3) Build CSV contents EXACTLY as approved
+      const summaryCsv = buildSummaryCsv({
+        run_id,
+        date_iso: date_iso_ui,
+        mechanic_name: form.mechanic,
+        work_order: form.wo,
+        location: form.location,
+        units,
+        group: form.group,
+        model: form.modelKey,
+        preload_ftlb,
+        retainer_measured_value,
+        result,
+      });
+
+      const measurementsCsv = buildMeasurementsCsv({
+        run_id,
+        rows: form.rows as RowMeas[],
+        units,
+      });
+
+      // 4) Upload both files to your folders
+      const fileBase = `run_${run_id}`;
+      const summaryName = `${fileBase}_summary.csv`;
+      const measurementsName = `${fileBase}_measurements.csv`;
+
+      const { absUrl: summaryUrl } = await uploadCsvToFolder(
+        RESULTS_FOLDER,
+        summaryName,
+        summaryCsv
+      );
+      const { absUrl: measurementsUrl } = await uploadCsvToFolder(
+        MEASUREMENTS_FOLDER,
+        measurementsName,
+        measurementsCsv
+      );
+
       // --- save to SharePoint regardless of pass/fail ---
-      //const sp = getSP();
-      //const LIST_TITLE = "Acroset Log"; // If you're passing a prop, use that instead.
       const payload: Record<string, any> = {
-        Title: `${form.modelKey || "Model"} - ${form.wo || "WO"}`,
+        Title: `${form.wo || "WO"}-${form.modelKey || "Model"}-${form.group}-${
+          form.location
+        }`,
         Date: dateIso,
         Mechanic: form.mechanic,
-        WorkOrder: form.wo,
-        Location: form.location,
-        Group: form.group,
-        Model: form.modelKey,
-        Retainer: parseFloat(form.retainerMeasured),
-        Measurements: JSON.stringify(form.rows),
+        //WorkOrder: form.wo,
+        //Location: form.location,
+        //Group: form.group,
+        //Model: form.modelKey,
+        //Retainer: parseFloat(form.retainerMeasured),
+        //Measurements: JSON.stringify(form.rows),
         Status: result.ok ? "Pass" : result.message ?? "Fail",
         // CalcOk: result.ok,           // (optional Yes/No column)
-        RecommendedShim: result.ok && result.chosenFit ? result.chosenFit.shimX : null,
-        ChosenFit: result.ok ? result.chosen ?? "" : "",
-        Units: form.unit,
+
+        //Units: form.unit,
+        ResultsCsvUrl: { Url: summaryUrl, Description: summaryName },
+        MeasurementsCsvUrl: {
+          Url: measurementsUrl,
+          Description: measurementsName,
+        },
       };
 
       await getSP().web.lists.getByTitle(listTitle).items.add(payload);
-      // Optional: inline toast/message instead of alert
+      setStatus("✅ Saved run and uploaded CSVs.");
     } catch (err: any) {
       console.error(err);
       setStatus(`❌ Save failed: ${err?.message ?? err}`);
@@ -820,73 +1156,24 @@ export default function AcrosetForm({
           </div>
         )}
 
-        {calcResult && calcResult.ok && calcResult.chosenFit && (
-          <div className={styles.results}>
-            <h3>Shim Pack Recommendation</h3>
-
-            <p>
-              <strong> </strong>
-              {formatByUnit(form.unit, calcResult.chosenFit.shimX)} {tolLabel}
-            </p>
-            <p>
-              <strong>Chosen fit:</strong> {calcResult.chosen}
-            </p>
-          </div>
-        )}
-
-        {/* --- Calculation Diagnostics --- */}
-        {calcResult?.ok && (
-          <div className={styles.results}>
-            <h3>Set Comparison</h3>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th>Fit</th>
-                  <th>R²</th>
-                  <th>Avg Err (ft-lb)</th>
-                  <th>Max Err (ft-lb)</th>
-                  <th>Shim Pack ({form.unit === "Imperial" ? "in" : "mm"})</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(["Set1", "Set2", "Combined"] as const).map(
-                  (key: "Set1" | "Set2" | "Combined"): JSX.Element | null => {
-                    const fit: CalcResult["set1"] | undefined =
-                      calcResult[
-                        key.toLowerCase() as keyof Pick<
-                          CalcResult,
-                          "set1" | "set2" | "combined"
-                        >
-                      ];
-                    if (!fit) return null;
-
-                    const dec: number =
-                      decimalsByUnit[form.unit as keyof typeof decimalsByUnit];
-                    const shim: string = Number.isFinite(fit.shimX)
-                      ? fit.shimX.toFixed(dec)
-                      : "—";
-
-                    return (
-                      <tr key={key}>
-                        <td>{key}</td>
-                        <td>{fit.r2?.toFixed(6) ?? "—"}</td>
-                        <td>{fit.avgErr_ftlb?.toFixed(2) ?? "—"}</td>
-                        <td>{fit.maxErr_ftlb?.toFixed(2) ?? "—"}</td>
-                        <td>{shim}</td>
-                        <td>
-                          {fit.ok
-                            ? "✅ Pass"
-                            : `❌ ${fit.reasonIfRejected ?? "Fail"}`}
-                        </td>
-                      </tr>
-                    );
-                  }
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
+        {calcResult?.ok &&
+          calcResult?.chosen &&
+          (() => {
+            const key = calcResult.chosen.toLowerCase() as
+              | "set1"
+              | "set2"
+              | "combined";
+            const fit = (calcResult as any)[key] as FitStats | undefined;
+            if (!fit || typeof fit.shimX !== "number") return null;
+            return (
+              <div className={styles.results}>
+                <h3>Shim Pack Recommendation</h3>
+                <p>
+                  {formatByUnit(form.unit, fit.shimX)} {tolLabel}
+                </p>
+              </div>
+            );
+          })()}
       </form>
     </div>
   );

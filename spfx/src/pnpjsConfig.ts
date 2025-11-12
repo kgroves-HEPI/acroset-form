@@ -5,6 +5,8 @@ import { spfi, SPFI, SPFx } from "@pnp/sp"; // ← fix: import SPFx from @pnp/sp
 import "@pnp/sp/webs";
 import "@pnp/sp/lists";
 import "@pnp/sp/items";
+import "@pnp/sp/files";    // ⬅️ required for .files / add/addUsingPath
+import "@pnp/sp/folders";  // ⬅️ required for getFolderByServerRelative*
 
 let _sp: SPFI | undefined;
 
