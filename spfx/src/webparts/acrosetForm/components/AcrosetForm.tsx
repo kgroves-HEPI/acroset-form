@@ -21,8 +21,70 @@ import unitsList from "../../../data/unitsList.json";
 import groupList from "../../../data/groupList.json";
 import locationList from "../../../data/locationList.json";
 
-// CSV BLOCK
 import { Guid } from "@microsoft/sp-core-library";
+
+//Retainer thickness Validation
+// --- Retainer validation helpers ---
+const IN_TO_MM = 25.4 as const;
+type ValidTier = "good" | "warn" | "error" | "unknown";
+
+function thresholdsByUnit(unit: Unit) {
+  // Good:  -0.010..+0.010 in
+  // Warn:  -0.030..-0.010 in
+  // Error: < -0.030 or > +0.010 in
+  const goodPos_in = 0.01,
+    goodNeg_in = -0.01,
+    warnNeg_in = -0.03;
+  if (unit === "Imperial")
+    return { goodPos: goodPos_in, goodNeg: goodNeg_in, warnNeg: warnNeg_in };
+  const f = IN_TO_MM;
+  return {
+    goodPos: goodPos_in * f,
+    goodNeg: goodNeg_in * f,
+    warnNeg: warnNeg_in * f,
+  };
+}
+
+function getNominalRetainer(
+  retainerKey: string,
+  unit: Unit
+): number | undefined {
+  const rec: any = (retainerList as any)?.[retainerKey];
+  if (!rec) return undefined;
+  return unit === "Imperial" ? rec.in : rec.mm;
+}
+
+function validateRetainer(
+  measuredStr: string,
+  retainerKey: string | undefined,
+  unit: Unit
+): { status: ValidTier; msg: string; delta?: number; nominal?: number } {
+  const measured = parseFloat(measuredStr);
+  const nominal = retainerKey
+    ? getNominalRetainer(retainerKey, unit)
+    : undefined;
+
+  if (!Number.isFinite(measured) || nominal === undefined) {
+    return { status: "unknown", msg: "", delta: undefined, nominal };
+  }
+
+  const delta = measured - nominal;
+  const th = thresholdsByUnit(unit);
+  if (delta >= th.goodNeg && delta <= th.goodPos) {
+    return { status: "good", msg: "Good.", delta, nominal };
+  }
+  if (delta < th.goodNeg && delta >= th.warnNeg) {
+    return { status: "warn", msg: "Double check measurement.", delta, nominal };
+  }
+  return {
+    status: "error",
+    msg: "Value seems unrealistic or retainer has been skim cut. Double check entry and reusability criteria.",
+    delta,
+    nominal,
+  };
+}
+
+// CSV BLOCK
 
 type FitId = "Set1" | "Set2" | "Combined";
 type FitStats = CalcResult["set1"];
@@ -49,8 +111,8 @@ const csvLine = (arr: (string | number)[]) =>
 const toNumberOrBlank = (v: any) =>
   Number.isFinite(Number(v)) ? Number(v) : "";
 
-// Build Summary CSV (one row) with exact headers approved
-function buildSummaryCsv(args: {
+// Build results CSV (one row) with exact headers approved
+function buildresultsCsv(args: {
   run_id: string;
   date_iso: string;
   mechanic_name: string;
@@ -283,16 +345,18 @@ async function uploadCsvToFolder(
     webAny.getFolderByServerRelativeUrl?.(folderServerRelativePath);
 
   if (!folder) {
-    throw new Error("Folder API not available. Ensure '@pnp/sp/folders' is imported.");
+    throw new Error(
+      "Folder API not available. Ensure '@pnp/sp/folders' is imported."
+    );
   }
 
-// 2) Upload the file (prefer addUsingPath, fallback to add)
-const filesAny: any = folder.files;
-if (filesAny?.addUsingPath) {
-  await filesAny.addUsingPath(fileName, csvText, { Overwrite: true });
-} else {
-  await filesAny.add(fileName, csvText, true);
-}
+  // 2) Upload the file (prefer addUsingPath, fallback to add)
+  const filesAny: any = folder.files;
+  if (filesAny?.addUsingPath) {
+    await filesAny.addUsingPath(fileName, csvText, { Overwrite: true });
+  } else {
+    await filesAny.add(fileName, csvText, true);
+  }
 
   // 3) Read back file info using path or url API
   const fileRef = `${folderServerRelativePath}/${fileName}`;
@@ -300,14 +364,21 @@ if (filesAny?.addUsingPath) {
     webAny.getFileByServerRelativePath?.(fileRef) ||
     webAny.getFileByServerRelativeUrl?.(fileRef);
 
-  const file = await fileSel
-  .select("ServerRelativeUrl", "LinkingUri", "Name", "UniqueId")();
+  const file = await fileSel.select(
+    "ServerRelativeUrl",
+    "LinkingUri",
+    "Name",
+    "UniqueId"
+  )();
 
-  const absUrl = file.LinkingUri ?? `${window.location.origin}${file.ServerRelativeUrl}`;
-  return { absUrl, uniqueId: file.UniqueId as string, name: file.Name as string };
+  const absUrl =
+    file.LinkingUri ?? `${window.location.origin}${file.ServerRelativeUrl}`;
+  return {
+    absUrl,
+    uniqueId: file.UniqueId as string,
+    name: file.Name as string,
+  };
 }
-
-
 
 interface AcrosetFormProps {
   listTitle: string;
@@ -414,6 +485,13 @@ export default function AcrosetForm({
   //alert(`❌ Connection failed: ${e?.message ?? e}`);
   //}
   //};
+  // --- Component state for validation result ---
+  const [retainerCheck, setRetainerCheck] = React.useState<{
+    status: ValidTier;
+    msg: string;
+    delta?: number;
+    nominal?: number;
+  }>({ status: "unknown", msg: "" });
 
   const [form, setForm] = React.useState<FormState>({
     date: todayYmd,
@@ -427,12 +505,21 @@ export default function AcrosetForm({
     rows: [],
   });
 
-  // derive model spec from group/modelKey
-  const modelSpec: ModelSpec | null = React.useMemo<ModelSpec | null>(() => {
+  // 1) derive model spec first
+  const modelSpec: ModelSpec | null = React.useMemo(() => {
     if (!form.group || !form.modelKey) return null;
-    const mm = form.group === "Front" ? FRONT_MODELS : REAR_MODELS;
+    const isFront = (form.group || "").toLowerCase() === "front";
+    const mm = isFront ? FRONT_MODELS : REAR_MODELS;
     return (mm[form.modelKey] as ModelSpec) ?? null;
   }, [form.group, form.modelKey]);
+
+  // 2) then use it inside the effect
+  React.useEffect(() => {
+    const retainerKey = modelSpec?.retainer; // may be undefined
+    setRetainerCheck(
+      validateRetainer(form.retainerMeasured, retainerKey, form.unit as Unit)
+    );
+  }, [form.retainerMeasured, form.unit, modelSpec?.retainer]);
 
   const torqueArray: number[] = React.useMemo<number[]>(() => {
     if (!modelSpec) return [];
@@ -742,6 +829,24 @@ export default function AcrosetForm({
     e.preventDefault();
     if (saving) return;
     setSaving(true);
+    const shortGuid = Guid.newGuid().toString().slice(0, 4);
+    // before you build ComputeInput / call compute(...)
+    const current = validateRetainer(
+      form.retainerMeasured,
+      modelSpec?.retainer,
+      form.unit as Unit
+    );
+    setRetainerCheck(current);
+
+    if (current.status === "error") {
+      setStatus("❌ " + current.msg);
+      setSaving(false);
+      return; // block calculation/save on red tier
+    }
+    // (optional) if you want a subtle heads-up on warn:
+    if (current.status === "warn") {
+      setStatus("⚠️ " + current.msg);
+    }
 
     try {
       // --- build input & run calculations  ---
@@ -791,7 +896,7 @@ export default function AcrosetForm({
       }
 
       // 2) Prepare run + common fields
-      const run_id = Guid.newGuid().toString();
+      const run_id = `${form.wo}_${form.date}_${shortGuid}`;
       const date_iso_ui = form.date; // "YYYY-MM-DD" coming from your UI
       const units: Unit = form.unit as Unit; // "Imperial" | "Metric"
       const preload_ftlb =
@@ -799,7 +904,7 @@ export default function AcrosetForm({
       const retainer_measured_value = Number(form.retainerMeasured ?? 0);
 
       // 3) Build CSV contents EXACTLY as approved
-      const summaryCsv = buildSummaryCsv({
+      const resultsCsv = buildresultsCsv({
         run_id,
         date_iso: date_iso_ui,
         mechanic_name: form.mechanic,
@@ -821,13 +926,13 @@ export default function AcrosetForm({
 
       // 4) Upload both files to your folders
       const fileBase = `run_${run_id}`;
-      const summaryName = `${fileBase}_summary.csv`;
+      const resultsName = `${fileBase}_results.csv`;
       const measurementsName = `${fileBase}_measurements.csv`;
 
-      const { absUrl: summaryUrl } = await uploadCsvToFolder(
+      const { absUrl: resultsUrl } = await uploadCsvToFolder(
         RESULTS_FOLDER,
-        summaryName,
-        summaryCsv
+        resultsName,
+        resultsCsv
       );
       const { absUrl: measurementsUrl } = await uploadCsvToFolder(
         MEASUREMENTS_FOLDER,
@@ -852,7 +957,7 @@ export default function AcrosetForm({
         // CalcOk: result.ok,           // (optional Yes/No column)
 
         //Units: form.unit,
-        ResultsCsvUrl: { Url: summaryUrl, Description: summaryName },
+        ResultsCsvUrl: { Url: resultsUrl, Description: resultsName },
         MeasurementsCsvUrl: {
           Url: measurementsUrl,
           Description: measurementsName,
@@ -864,8 +969,6 @@ export default function AcrosetForm({
     } catch (err: any) {
       console.error(err);
       setStatus(`❌ Save failed: ${err?.message ?? err}`);
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -1085,11 +1188,10 @@ export default function AcrosetForm({
           <label className={styles.label}>
             {measLabelByUnit[form.unit]}
             <input
-              className={styles.input}
               name="retainerMeasured"
               type="number"
-              step={form.unit === "Imperial" ? "0.0001" : "0.01"}
               inputMode="decimal"
+              step={form.unit === "Imperial" ? "0.0001" : "0.01"} // keep your current precision
               placeholder={
                 nominalRetainerPlaceholder
                   ? `e.g., ${nominalRetainerPlaceholder}`
@@ -1099,8 +1201,45 @@ export default function AcrosetForm({
               value={form.retainerMeasured}
               onChange={onChangeRetainer}
               onBlur={onBlurRetainer}
+              className={[
+                styles.input,
+                retainerCheck.status === "warn" ? styles.inputWarn : "",
+                retainerCheck.status === "error" ? styles.inputError : "",
+              ]
+                .join(" ")
+                .trim()}
+              aria-invalid={retainerCheck.status === "error"}
             />
           </label>
+
+          {retainerCheck.status !== "unknown" && (
+            <small
+              className={
+                retainerCheck.status === "error"
+                  ? styles.msgError
+                  : retainerCheck.status === "warn"
+                  ? styles.msgWarn
+                  : styles.msgOk
+              }
+            >
+              {retainerCheck.msg}
+              {typeof retainerCheck.delta === "number" &&
+                typeof retainerCheck.nominal === "number" && (
+                  <>
+                    {" "}
+                    ( Δ ={" "}
+                    {retainerCheck.delta.toFixed(
+                      form.unit === "Imperial" ? 4 : 3
+                    )}{" "}
+                    {form.unit === "Imperial" ? "in" : "mm"}, nominal{" "}
+                    {retainerCheck.nominal.toFixed(
+                      form.unit === "Imperial" ? 4 : 3
+                    )}{" "}
+                    {form.unit === "Imperial" ? "in" : "mm"})
+                  </>
+                )}
+            </small>
+          )}
         </div>
 
         {/* --- Measurements --- */}
