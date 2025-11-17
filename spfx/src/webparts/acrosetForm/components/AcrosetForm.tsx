@@ -147,21 +147,22 @@ function buildresultsCsv(args: {
 
   const chosenStats = chosen_fit ? byFit(chosen_fit) : undefined;
   const chosen_shim_value = chosenStats?.shimX ?? "";
+  const chosen_shim_torque = toNumberOrBlank((chosenStats as any)?.yAtShim_ftlb); // ← NEW
   const calc_status = result.ok ? "Pass" : "Fail";
 
   const extract = (fs?: FitStats) => {
-    const anyFs = fs as any; // allow optional fields not in the TS type
-    return {
-      slope: toNumberOrBlank(anyFs?.slope),
-      intercept: toNumberOrBlank(anyFs?.intercept),
-      r2: toNumberOrBlank(anyFs?.r2),
-      avg: toNumberOrBlank(anyFs?.avgErr_ftlb),
-      max: toNumberOrBlank(anyFs?.maxErr_ftlb),
-      shim: toNumberOrBlank(anyFs?.shimX),
-      status: anyFs?.ok === undefined ? "" : anyFs.ok ? "Pass" : "Fail",
-      reason: anyFs?.ok ? "" : anyFs?.reasonIfRejected ?? "",
-    };
-  };
+  const anyFs = fs as any;
+  const slope = toNumberOrBlank(anyFs?.slope ?? anyFs?.a);        // ← add a fallback
+  const intercept = toNumberOrBlank(anyFs?.intercept ?? anyFs?.b); // ← add b fallback
+  const r2 = toNumberOrBlank(anyFs?.r2);
+  const avg = toNumberOrBlank(anyFs?.avgErr_ftlb);
+  const max = toNumberOrBlank(anyFs?.maxErr_ftlb);
+  const shim = toNumberOrBlank(anyFs?.shimX);
+  const shimTorque = toNumberOrBlank(anyFs?.yAtShim_ftlb);         // ← NEW
+  const status = anyFs?.ok === undefined ? "" : anyFs.ok ? "Pass" : "Fail";
+  const reason = anyFs?.ok ? "" : anyFs?.reasonIfRejected ?? "";
+  return { slope, intercept, r2, avg, max, shim, shimTorque, status, reason };
+};
 
   const s1 = extract(result.set1);
   const s2 = extract(result.set2);
@@ -185,6 +186,7 @@ function buildresultsCsv(args: {
     "chosen_fit",
     "chosen_shim_value",
     "chosen_shim_unit",
+    "chosen_shim_torque_ftlb",
     "set1_slope",
     "set1_intercept",
     "set1_r2",
@@ -192,6 +194,7 @@ function buildresultsCsv(args: {
     "set1_max_err_ftlb",
     "set1_shim_value",
     "set1_shim_unit",
+    "set1_shim_torque_ftlb",
     "set1_status",
     "set1_reject_reason",
     "set2_slope",
@@ -201,6 +204,7 @@ function buildresultsCsv(args: {
     "set2_max_err_ftlb",
     "set2_shim_value",
     "set2_shim_unit",
+    "set2_shim_torque_ftlb",
     "set2_status",
     "set2_reject_reason",
     "combined_slope",
@@ -210,6 +214,7 @@ function buildresultsCsv(args: {
     "combined_max_err_ftlb",
     "combined_shim_value",
     "combined_shim_unit",
+    "combined_shim_torque_ftlb",
     "combined_status",
     "combined_reject_reason",
   ]);
@@ -230,6 +235,7 @@ function buildresultsCsv(args: {
     calc_status,
     chosen_fit,
     chosen_shim_value,
+    chosen_shim_torque,
     unitShim,
     s1.slope,
     s1.intercept,
@@ -238,6 +244,7 @@ function buildresultsCsv(args: {
     s1.max,
     s1.shim,
     unitShim,
+    s1.shimTorque,
     s1.status,
     s1.reason,
     s2.slope,
@@ -247,6 +254,7 @@ function buildresultsCsv(args: {
     s2.max,
     s2.shim,
     unitShim,
+    s2.shimTorque,
     s2.status,
     s2.reason,
     sc.slope,
@@ -256,6 +264,7 @@ function buildresultsCsv(args: {
     sc.max,
     sc.shim,
     unitShim,
+    sc.shimTorque,
     sc.status,
     sc.reason,
   ]);
