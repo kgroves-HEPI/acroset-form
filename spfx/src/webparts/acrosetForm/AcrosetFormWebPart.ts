@@ -1,3 +1,15 @@
+/**
+ * File Name: AcrosetFormWebPart.ts
+ * Project: Acroset
+ * Description: SPFx web part entrypoint that initializes SharePoint services and mounts the Acroset React feature.
+ * Author: Kaelan Groves
+ * Version: 1.0.0
+ * Created Date: 2026-04-23
+ * Modified Date: 2026-04-23
+ * Copyright: 2025. HEPI.
+ * License: Proprietary.
+ */
+
 import * as React from 'react';
 import * as ReactDom from 'react-dom';
 import { Environment, EnvironmentType, Version } from '@microsoft/sp-core-library';
@@ -6,8 +18,9 @@ import {
   PropertyPaneTextField
 } from '@microsoft/sp-property-pane';
 import { BaseClientSideWebPart } from '@microsoft/sp-webpart-base';
-import { initSP } from "../../pnpjsConfig";
-import AcrosetForm from './components/AcrosetForm';
+import AcrosetForm from '../../features/acrosetForm/AcrosetForm';
+import { DEFAULT_LIST_TITLE } from '../../features/acrosetForm/config/runtimeConfig';
+import { initSP } from "../../platform/sharepoint/pnpjsClient";
 
 import "@pnp/sp/webs";
 import "@pnp/sp/lists";
@@ -43,7 +56,7 @@ export default class AcrosetFormWebPart extends BaseClientSideWebPart<IAcrosetFo
   public render(): void {
     const element = React.createElement(AcrosetForm, {
       // This keeps the SharePoint list configurable without changing code.
-      listTitle: this.properties.listTitle || "Acroset Log",
+      listTitle: this.properties.listTitle || DEFAULT_LIST_TITLE,
       isLocalWorkbench: Environment.type === EnvironmentType.Local,
     });
 

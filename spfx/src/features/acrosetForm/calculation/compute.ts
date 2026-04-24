@@ -1,12 +1,13 @@
 /**
- * Core calculation engine for the Acroset form.
- *
- * The React component is responsible for collecting inputs and displaying
- * results. This file is responsible for the math only:
- * - validate the measurement sets
- * - fit regression lines
- * - score each candidate fit
- * - return the best shim recommendation
+ * File Name: compute.ts
+ * Project: Acroset
+ * Description: Core Acroset calculation engine for validating measurement sets and deriving shim recommendations.
+ * Author: Kaelan Groves
+ * Version: 1.0.0
+ * Created Date: 2026-04-23
+ * Modified Date: 2026-04-23
+ * Copyright: 2025. HEPI.
+ * License: Proprietary.
  */
 export type Unit = "Imperial" | "Metric";
 export type Group = "Front" | "Rear";

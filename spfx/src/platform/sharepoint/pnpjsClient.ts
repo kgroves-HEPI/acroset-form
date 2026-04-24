@@ -1,3 +1,15 @@
+/**
+ * File Name: pnpjsClient.ts
+ * Project: Acroset
+ * Description: Shared SharePoint PnPjs client initialization and access helpers for the SPFx app.
+ * Author: Kaelan Groves
+ * Version: 1.0.0
+ * Created Date: 2026-04-23
+ * Modified Date: 2026-04-23
+ * Copyright: 2025. HEPI.
+ * License: Proprietary.
+ */
+
 import { WebPartContext } from "@microsoft/sp-webpart-base";
 import { spfi, SPFI, SPFx } from "@pnp/sp";
 
@@ -28,6 +40,8 @@ export const initSP = (context: WebPartContext): SPFI => {
  * called first by the SPFx web part host.
  */
 export const getSP = (): SPFI => {
-  if (!_sp) throw new Error("PnPjs not initialized. Call initSP(context) in onInit().");
+  if (!_sp) {
+    throw new Error("PnPjs not initialized. Call initSP(context) in onInit().");
+  }
   return _sp;
 };

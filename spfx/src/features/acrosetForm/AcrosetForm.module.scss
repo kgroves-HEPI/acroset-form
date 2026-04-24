@@ -1,3 +1,15 @@
+/*
+ * File Name: AcrosetForm.module.scss
+ * Project: Acroset
+ * Description: Component styles for the Acroset request form and measurement grid.
+ * Author: Kaelan Groves
+ * Version: 1.0.0
+ * Created Date: 2026-04-23
+ * Modified Date: 2026-04-23
+ * Copyright: 2025. HEPI.
+ * License: Proprietary.
+ */
+
 /* Canvas width override (global SharePoint canvas) */
 :global(.CanvasSection),
 :global(.CanvasZone) {
@@ -52,16 +64,13 @@
   padding: 10px 12px;
   font-size: 14px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
-  /* 🔽 Hide stepper arrows for numeric inputs (cross-browser) */
-
-  /* Chrome, Safari, Edge, Opera */
+  /* Hide stepper arrows for numeric inputs across browsers. */
   &::-webkit-outer-spin-button,
   &::-webkit-inner-spin-button {
     -webkit-appearance: none;
     margin: 0;
   }
 
-  /* Firefox */
   & {
     -moz-appearance: textfield;
   }
@@ -94,14 +103,11 @@
   border-collapse: collapse;
   background: #fff;
 
-  /* 🔁 Match .input styles */
-  border: 1px solid #d0d7de;                    /* match input */
-  border-radius: 8px;                           /* same radius */
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);     /* same depth */
-  overflow: hidden;                             /* for rounded clipping */
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
 }
-
-/* Headers - optional background for clarity */
 .table th {
   background: #f8fafc;
   font-weight: 600;
@@ -113,7 +119,7 @@
 .table td {
   padding: 10px 12px;
   text-align: center;
-  border-bottom: 1px solid #e5e7eb;  /* ✅ horizontal line */
+  border-bottom: 1px solid #e5e7eb;
 }
 
 /* Remove border from last row */
@@ -128,11 +134,11 @@
 
 /* Add vertical dividers between Torque / Set 1 / Set 2 */
 .table td:first-child {
-  border-right: 1px solid #e5e7eb; /* Right border after Torque */
+  border-right: 1px solid #e5e7eb;
 }
 
 .table td:nth-child(3) {
-  border-right: 1px solid #e5e7eb; /* Right border after Set 1 */
+  border-right: 1px solid #e5e7eb;
 }
 
 .table input {
@@ -148,7 +154,7 @@
 .status {
   margin-top: 12px;
   font-weight: 500;
-  color: #b91c1c; /* red */
+  color: #b91c1c;
 }
 
 .results {
@@ -160,35 +166,35 @@
 }
 
 .inputValid {
-  border: 2px solid #4caf50; // green
+  border: 2px solid #4caf50;
 }
 
 .inputInvalid {
-  border: 4px solid #f44336; // red
+  border: 4px solid #f44336;
 }
 
 .statusValid {
   margin-top: 12px;
   font-weight: 500;
-  color: #4caf50; /* green */
+  color: #4caf50;
 }
 
 .statusInvalid {
   margin-top: 12px;
   font-weight: 500;
-  color: #f44336; /* red */
+  color: #f44336;
 }
 
 .inputWarn {
-  border-color: #e0a800 !important; /* yellow */
+  border-color: #e0a800 !important;
   box-shadow: 0 0 0 2px rgba(224,168,0,0.15);
 }
 
 .inputError {
-  border-color: #dc3545 !important; /* red */
+  border-color: #dc3545 !important;
   box-shadow: 0 0 0 2px rgba(220,53,69,0.15);
 }
 
-.msgOk    { color: #28a745; }  /* green */
-.msgWarn  { color: #e0a800; }  /* yellow */
-.msgError { color: #dc3545; }  /* red */
+.msgOk    { color: #28a745; }
+.msgWarn  { color: #e0a800; }
+.msgError { color: #dc3545; }

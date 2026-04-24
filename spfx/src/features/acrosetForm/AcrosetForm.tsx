@@ -1,514 +1,73 @@
+/**
+ * File Name: AcrosetForm.tsx
+ * Project: Acroset
+ * Description: Main React form for collecting Acroset inputs, running calculations, exporting CSVs, and saving SharePoint records.
+ * Author: Kaelan Groves
+ * Version: 1.0.0
+ * Created Date: 2026-04-23
+ * Modified Date: 2026-04-23
+ * Copyright: 2025. HEPI.
+ * License: Proprietary.
+ */
+
 import * as React from "react";
+import { Guid } from "@microsoft/sp-core-library";
+
 import styles from "./AcrosetForm.module.scss";
 import {
   compute,
   CalcResult,
   ComputeInput,
-  Unit,
+  FitStats,
   Group,
   PointRow,
-} from "../../../utils/compute";
-
-import { getSP } from "../../../pnpjsConfig";
-
-// --- data (adjust paths to match your project) ---
-import modelFront from "../../../data/modelFrontList.json";
-import modelRear from "../../../data/modelRearList.json";
-import preloadList from "../../../data/preloadList.json";
-import retainerList from "../../../data/retainerList.json";
-import torqueArrayList from "../../../data/torqueArrayList.json";
-import unitsList from "../../../data/unitsList.json";
-import groupList from "../../../data/groupList.json";
-import locationList from "../../../data/locationList.json";
-
-import { Guid } from "@microsoft/sp-core-library";
-
-/**
- * Main React UI for the Acroset submission flow.
- *
- * High-level responsibilities:
- * - load lookup data from local JSON files
- * - collect and validate mechanic inputs
- * - call the calculation engine
- * - upload CSV outputs to SharePoint folders
- * - save a run summary to a SharePoint list
- *
- * This file is intentionally large because the project started as a prototype.
- * The goal of the comments below is to make the current behavior easier to
- * review without changing the implementation yet.
- */
-
-// --- Retainer validation helpers ---
-const IN_TO_MM = 25.4 as const;
-type ValidTier = "good" | "warn" | "error" | "unknown";
-
-/**
- * Returns the acceptable retainer delta thresholds for the selected unit system.
- */
-function thresholdsByUnit(unit: Unit) {
-  // Good:  -0.010..+0.010 in
-  // Warn:  -0.030..-0.010 in
-  // Error: < -0.030 or > +0.010 in
-  const goodPos_in = 0.01,
-    goodNeg_in = -0.01,
-    warnNeg_in = -0.03;
-  if (unit === "Imperial")
-    return { goodPos: goodPos_in, goodNeg: goodNeg_in, warnNeg: warnNeg_in };
-  const f = IN_TO_MM;
-  return {
-    goodPos: goodPos_in * f,
-    goodNeg: goodNeg_in * f,
-    warnNeg: warnNeg_in * f,
-  };
-}
-
-/**
- * Looks up the nominal retainer thickness for the selected model.
- */
-function getNominalRetainer(
-  retainerKey: string,
-  unit: Unit
-): number | undefined {
-  const rec: any = (retainerList as any)?.[retainerKey];
-  if (!rec) return undefined;
-  return unit === "Imperial" ? rec.in : rec.mm;
-}
-
-/**
- * Classifies the measured retainer value so the UI can give immediate feedback.
- *
- * This check happens before the full regression math. It is a quick sanity check
- * against the nominal retainer value from the lookup data.
- */
-function validateRetainer(
-  measuredStr: string,
-  retainerKey: string | undefined,
-  unit: Unit
-): { status: ValidTier; msg: string; delta?: number; nominal?: number } {
-  const measured = parseFloat(measuredStr);
-  const nominal = retainerKey
-    ? getNominalRetainer(retainerKey, unit)
-    : undefined;
-
-  if (!Number.isFinite(measured) || nominal === undefined) {
-    return { status: "unknown", msg: "", delta: undefined, nominal };
-  }
-
-  const delta = measured - nominal;
-  const th = thresholdsByUnit(unit);
-  if (delta >= th.goodNeg && delta <= th.goodPos) {
-    return { status: "good", msg: "Good.", delta, nominal };
-  }
-  if (delta < th.goodNeg && delta >= th.warnNeg) {
-    return { status: "warn", msg: "Double check measurement.", delta, nominal };
-  }
-  return {
-    status: "error",
-    msg: "Value seems unrealistic or retainer has been skim cut. Double check entry and reusability criteria.",
-    delta,
-    nominal,
-  };
-}
-
-// --- CSV export helpers ---
-
-type FitId = "Set1" | "Set2" | "Combined";
-type FitStats = CalcResult["set1"];
-
-type RowMeas = {
-  torque_ftlb: number;
-  s1_m1: string | number;
-  s1_m2: string | number;
-  s2_m1: string | number;
-  s2_m2: string | number;
-};
-
-const RESULTS_FOLDER = "/teams/MSUSEngineering/Acroset Data/Results";
-const MEASUREMENTS_FOLDER = "/teams/MSUSEngineering/Acroset Data/Measurements";
-
-const csvQuote = (v: any) => {
-  if (v === null || v === undefined) return "";
-  const s = String(v);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-};
-const csvLine = (arr: (string | number)[]) =>
-  arr.map(csvQuote).join(",") + "\n";
-
-const toNumberOrBlank = (v: any) =>
-  Number.isFinite(Number(v)) ? Number(v) : "";
-
-/**
- * Builds the one-row "results" CSV that summarizes the final calculation.
- *
- * The column names are intentionally explicit because downstream consumers may
- * rely on them exactly as written.
- */
-function buildresultsCsv(args: {
-  run_id: string;
-  date_iso: string;
-  mechanic_name: string;
-  work_order: string;
-  location: string;
-  units: Unit;
-  group: string;
-  model: string;
-  preload_ftlb: number;
-  retainer_measured_value: number | string;
-  result: CalcResult;
-}) {
-  const {
-    run_id,
-    date_iso,
-    mechanic_name,
-    work_order,
-    location,
-    units,
-    group,
-    model,
-    preload_ftlb,
-    retainer_measured_value,
-    result,
-  } = args;
-
-  const unitShim = units === "Imperial" ? "in" : "mm";
-  const chosen_fit: FitId | "" =
-    result.ok && result.chosen ? result.chosen : "";
-  const byFit = (id: FitId): FitStats | undefined =>
-    id === "Set1" ? result.set1 : id === "Set2" ? result.set2 : result.combined;
-
-  const chosenStats = chosen_fit ? byFit(chosen_fit) : undefined;
-  const chosen_shim_value = chosenStats?.shimX ?? "";
-  const chosen_shim_torque = toNumberOrBlank((chosenStats as any)?.yAtShim_ftlb);
-  const calc_status = result.ok ? "Pass" : "Fail";
-
-  const extract = (fs?: FitStats) => {
-    const anyFs = fs as any;
-    const slope = toNumberOrBlank(anyFs?.slope ?? anyFs?.a);
-    const intercept = toNumberOrBlank(anyFs?.intercept ?? anyFs?.b);
-    const r2 = toNumberOrBlank(anyFs?.r2);
-    const avg = toNumberOrBlank(anyFs?.avgErr_ftlb);
-    const max = toNumberOrBlank(anyFs?.maxErr_ftlb);
-    const shim = toNumberOrBlank(anyFs?.shimX);
-    const shimTorque = toNumberOrBlank(anyFs?.yAtShim_ftlb);
-    const status = anyFs?.ok === undefined ? "" : anyFs.ok ? "Pass" : "Fail";
-    const reason = anyFs?.ok ? "" : anyFs?.reasonIfRejected ?? "";
-    return { slope, intercept, r2, avg, max, shim, shimTorque, status, reason };
-  };
-
-  const s1 = extract(result.set1);
-  const s2 = extract(result.set2);
-  const sc = extract(result.combined);
-
-  let csv = "";
-  // headers (exact)
-  csv += csvLine([
-    "run_id",
-    "date_iso",
-    "mechanic_name",
-    "work_order",
-    "location",
-    "units",
-    "group",
-    "model",
-    "preload_ftlb",
-    "retainer_measured_value",
-    "retainer_measured_unit",
-    "calc_status",
-    "chosen_fit",
-    "chosen_shim_value",
-    "chosen_shim_unit",
-    "chosen_shim_torque_ftlb",
-    "set1_slope",
-    "set1_intercept",
-    "set1_r2",
-    "set1_avg_err_ftlb",
-    "set1_max_err_ftlb",
-    "set1_shim_value",
-    "set1_shim_unit",
-    "set1_shim_torque_ftlb",
-    "set1_status",
-    "set1_reject_reason",
-    "set2_slope",
-    "set2_intercept",
-    "set2_r2",
-    "set2_avg_err_ftlb",
-    "set2_max_err_ftlb",
-    "set2_shim_value",
-    "set2_shim_unit",
-    "set2_shim_torque_ftlb",
-    "set2_status",
-    "set2_reject_reason",
-    "combined_slope",
-    "combined_intercept",
-    "combined_r2",
-    "combined_avg_err_ftlb",
-    "combined_max_err_ftlb",
-    "combined_shim_value",
-    "combined_shim_unit",
-    "combined_shim_torque_ftlb",
-    "combined_status",
-    "combined_reject_reason",
-  ]);
-
-  // single data row
-  csv += csvLine([
-    run_id,
-    date_iso,
-    mechanic_name,
-    work_order,
-    location,
-    units,
-    group,
-    model,
-    preload_ftlb,
-    retainer_measured_value,
-    units === "Imperial" ? "in" : "mm",
-    calc_status,
-    chosen_fit,
-    chosen_shim_value,
-    chosen_shim_torque,
-    unitShim,
-    s1.slope,
-    s1.intercept,
-    s1.r2,
-    s1.avg,
-    s1.max,
-    s1.shim,
-    unitShim,
-    s1.shimTorque,
-    s1.status,
-    s1.reason,
-    s2.slope,
-    s2.intercept,
-    s2.r2,
-    s2.avg,
-    s2.max,
-    s2.shim,
-    unitShim,
-    s2.shimTorque,
-    s2.status,
-    s2.reason,
-    sc.slope,
-    sc.intercept,
-    sc.r2,
-    sc.avg,
-    sc.max,
-    sc.shim,
-    unitShim,
-    sc.shimTorque,
-    sc.status,
-    sc.reason,
-  ]);
-
-  return csv;
-}
-
-/**
- * Builds the detailed measurements CSV.
- *
- * This is the audit trail version of the export: one row per measurement value.
- */
-function buildMeasurementsCsv(args: {
-  run_id: string;
-  rows: RowMeas[];
-  units: Unit;
-}) {
-  const { run_id, rows, units } = args;
-  const vUnit = units === "Imperial" ? "in" : "mm";
-
-  let csv = "";
-  csv += csvLine([
-    "run_id",
-    "torque_index",
-    "torque_ftlb",
-    "set_id",
-    "meas_num",
-    "value",
-    "value_unit",
-  ]);
-
-  rows.forEach((r, idx) => {
-    const i = idx + 1;
-    const torque = toNumberOrBlank(r.torque_ftlb);
-
-    // Set1 meas1 & meas2
-    csv += csvLine([
-      run_id,
-      i,
-      torque,
-      "Set1",
-      1,
-      toNumberOrBlank(r.s1_m1),
-      vUnit,
-    ]);
-    csv += csvLine([
-      run_id,
-      i,
-      torque,
-      "Set1",
-      2,
-      toNumberOrBlank(r.s1_m2),
-      vUnit,
-    ]);
-
-    // Set2 meas1 & meas2
-    csv += csvLine([
-      run_id,
-      i,
-      torque,
-      "Set2",
-      1,
-      toNumberOrBlank(r.s2_m1),
-      vUnit,
-    ]);
-    csv += csvLine([
-      run_id,
-      i,
-      torque,
-      "Set2",
-      2,
-      toNumberOrBlank(r.s2_m2),
-      vUnit,
-    ]);
-  });
-
-  return csv;
-}
-
-/**
- * Uploads a CSV string to a SharePoint folder and returns the saved file info.
- *
- * The code supports both older and newer PnPjs folder/file APIs because the
- * production tenant may not always align with the exact API style used during
- * prototyping.
- */
-async function uploadCsvToFolder(
-  folderServerRelativePath: string,
-  fileName: string,
-  csvText: string
-) {
-  const sp = getSP();
-  const webAny: any = sp.web as any;
-
-  // 1) Resolve the folder object (new or old API)
-  const folder =
-    webAny.getFolderByServerRelativePath?.(folderServerRelativePath) ||
-    webAny.getFolderByServerRelativeUrl?.(folderServerRelativePath);
-
-  if (!folder) {
-    throw new Error(
-      "Folder API not available. Ensure '@pnp/sp/folders' is imported."
-    );
-  }
-
-  // 2) Upload the file (prefer addUsingPath, fallback to add)
-  const filesAny: any = folder.files;
-  if (filesAny?.addUsingPath) {
-    await filesAny.addUsingPath(fileName, csvText, { Overwrite: true });
-  } else {
-    await filesAny.add(fileName, csvText, true);
-  }
-
-  // 3) Read back file info using path or url API
-  const fileRef = `${folderServerRelativePath}/${fileName}`;
-  const fileSel =
-    webAny.getFileByServerRelativePath?.(fileRef) ||
-    webAny.getFileByServerRelativeUrl?.(fileRef);
-
-  const file = await fileSel.select(
-    "ServerRelativeUrl",
-    "LinkingUri",
-    "Name",
-    "UniqueId"
-  )();
-
-  const absUrl =
-    file.LinkingUri ?? `${window.location.origin}${file.ServerRelativeUrl}`;
-  return {
-    absUrl,
-    uniqueId: file.UniqueId as string,
-    name: file.Name as string,
-  };
-}
+  Unit,
+} from "./calculation/compute";
+import {
+  defaultCalculationThresholds,
+  decimalsByUnit,
+  MEASUREMENTS_FOLDER,
+  pairDeviationMaxByUnit,
+  RESULTS_FOLDER,
+  resultToleranceLabelByUnit,
+  retainerInputLabelByUnit,
+} from "./config/runtimeConfig";
+import {
+  frontModels,
+  groupOptions,
+  locationOptions,
+  preloadLookup,
+  rearModels,
+  retainerLookup,
+  torqueArrayLookup,
+  unitOptions,
+} from "./data/lookups";
+import { buildMeasurementsCsv, buildResultsCsv } from "./services/csvExport";
+import { uploadCsvToFolder } from "./services/sharePointStorage";
+import type { FormState, ModelSpec, Row, RowMeasurement } from "./types";
+import {
+  buildMonotonicFlags,
+  formatValueByUnit,
+  isNonIncreasing,
+  isWithinPairDeviation,
+  parseNonNegativeNumber,
+  pickValueByUnit,
+} from "./validation/measurementValidation";
+import {
+  RetainerValidationResult,
+  validateRetainerMeasurement,
+} from "./validation/retainerValidation";
+import { getSP } from "../../platform/sharepoint/pnpjsClient";
 
 interface AcrosetFormProps {
   listTitle: string;
   isLocalWorkbench?: boolean;
 }
 
-// --- Types that describe the shape of the local JSON lookup files ---
-type UnitValue = { in: number; mm: number };
-
-type PreloadList = Record<string, UnitValue>;
-type RetainerList = Record<string, UnitValue>;
-type TorqueArrayList = Record<string, number[]>;
-
-interface ModelSpec {
-  group: Group;
-  retainer: keyof RetainerList;
-  preload: keyof PreloadList;
-  TorqueArray: keyof TorqueArrayList;
-}
-type ModelMap = Record<string, ModelSpec>;
-
-// --- helpers for units ---
-const pairDevMaxByUnit: Record<Unit, number> = {
-  Imperial: 0.01, // inches
-  Metric: 0.25, // mm
-};
-const decimalsByUnit: Record<Unit, number> = { Imperial: 3, Metric: 2 };
-const resultTolByUnit: Record<Unit, string> = {
-  Imperial: "± 0.001 in",
-  Metric: "± 0.03 mm",
-};
-const measLabelByUnit: Record<Unit, string> = {
-  Imperial: "Measured Retainer Thickness (in)",
-  Metric: "Measured Retainer Thickness (mm)",
-};
-
-function pickByUnit<T extends UnitValue>(u: Unit, val: T): number {
-  return u === "Imperial" ? val.in : val.mm;
-}
-
-function formatByUnit(u: Unit, n: number): string {
-  return n.toFixed(decimalsByUnit[u]);
-}
-
-// --- row shape for dynamic torque arrays ---
-type Row = {
-  torque_ftlb: number;
-  s1_m1: string;
-  s1_m2: string;
-  s2_m1: string;
-  s2_m2: string;
-};
-
-type FormState = {
-  date: string;
-  mechanic: string;
-  wo: string;
-  location: string;
-  unit: Unit;
-  group: Group | "";
-  modelKey: string;
-  retainerMeasured: string; // in current unit (required)
-  rows: Row[];
-};
-
 export default function AcrosetForm({
   listTitle,
   isLocalWorkbench = false,
 }: AcrosetFormProps): JSX.Element {
-  // Convert imported JSON into typed lookup maps used throughout the form.
-  const FRONT_MODELS = modelFront as unknown as ModelMap;
-  const REAR_MODELS = modelRear as unknown as ModelMap;
-  const PRELOADS = preloadList as unknown as PreloadList;
-  const RETAINERS = retainerList as unknown as RetainerList;
-  const TORQUES = torqueArrayList as unknown as TorqueArrayList;
-  const UNITS = unitsList as Unit[];
-  const GROUPS = groupList as Group[];
-  const LOCATIONS = locationList as string[];
-
   // Result and status state used to drive the messages shown under the form.
   const [calcResult, setCalcResult] = React.useState<CalcResult | null>(null);
   const [status, setStatus] = React.useState<string | null>(null);
@@ -532,19 +91,18 @@ export default function AcrosetForm({
   const todayYmd = new Date().toISOString().slice(0, 10);
 
   // Stores the retainer "good / warn / error" message shown near the input.
-  const [retainerCheck, setRetainerCheck] = React.useState<{
-    status: ValidTier;
-    msg: string;
-    delta?: number;
-    nominal?: number;
-  }>({ status: "unknown", msg: "" });
+  const [retainerCheck, setRetainerCheck] =
+    React.useState<RetainerValidationResult>({
+      status: "unknown",
+      msg: "",
+    });
 
   const [form, setForm] = React.useState<FormState>({
     date: todayYmd,
     mechanic: "",
     wo: "",
     location: "",
-    unit: UNITS[0] ?? "Imperial",
+    unit: unitOptions[0] ?? "Imperial",
     group: "",
     modelKey: "",
     retainerMeasured: "",
@@ -556,8 +114,8 @@ export default function AcrosetForm({
   const modelSpec: ModelSpec | null = React.useMemo(() => {
     if (!form.group || !form.modelKey) return null;
     const isFront = (form.group || "").toLowerCase() === "front";
-    const mm = isFront ? FRONT_MODELS : REAR_MODELS;
-    return (mm[form.modelKey] as ModelSpec) ?? null;
+    const modelLookup = isFront ? frontModels : rearModels;
+    return modelLookup[form.modelKey] ?? null;
   }, [form.group, form.modelKey]);
 
   // Re-run the quick retainer sanity check whenever the user changes the value,
@@ -565,7 +123,12 @@ export default function AcrosetForm({
   React.useEffect(() => {
     const retainerKey = modelSpec?.retainer;
     setRetainerCheck(
-      validateRetainer(form.retainerMeasured, retainerKey, form.unit as Unit)
+      validateRetainerMeasurement(
+        form.retainerMeasured,
+        retainerLookup,
+        retainerKey,
+        form.unit
+      )
     );
   }, [form.retainerMeasured, form.unit, modelSpec?.retainer]);
 
@@ -574,22 +137,22 @@ export default function AcrosetForm({
   const torqueArray: number[] = React.useMemo<number[]>(() => {
     if (!modelSpec) return [];
     const key = modelSpec.TorqueArray;
-    return TORQUES[key] ?? [];
+    return torqueArrayLookup[key] ?? [];
   }, [modelSpec]);
 
   // Used as the input placeholder so the mechanic can see the expected nominal value.
   const nominalRetainerPlaceholder = React.useMemo<string>(() => {
     if (!modelSpec) return "";
-    const r = RETAINERS[modelSpec.retainer];
-    if (!r) return "";
-    return formatByUnit(form.unit, pickByUnit(form.unit, r));
+    const retainer = retainerLookup[modelSpec.retainer];
+    if (!retainer) return "";
+    return formatValueByUnit(form.unit, pickValueByUnit(form.unit, retainer));
   }, [modelSpec, form.unit]);
 
   // Preload is calculated from lookup data, not typed by the user.
   const preloadValue = React.useMemo<number>(() => {
     if (!modelSpec) return 0;
-    const p = PRELOADS[modelSpec.preload];
-    return p ? pickByUnit(form.unit, p) : 0;
+    const preload = preloadLookup[modelSpec.preload];
+    return preload ? pickValueByUnit(form.unit, preload) : 0;
   }, [modelSpec, form.unit]);
 
   // Reset the measurement grid whenever the selected model changes to one with a
@@ -725,27 +288,16 @@ export default function AcrosetForm({
       const avgs1 = nextRows.map((r) => {
         const v1 = parseFloat(r.s1_m1);
         const v2 = parseFloat(r.s1_m2);
-        return !isNaN(v1) && !isNaN(v2) ? (v1 + v2) / 2 : null;
+        return !isNaN(v1) && !isNaN(v2) ? (v1 + v2) / 2 : undefined;
       });
       const avgs2 = nextRows.map((r) => {
         const v1 = parseFloat(r.s2_m1);
         const v2 = parseFloat(r.s2_m2);
-        return !isNaN(v1) && !isNaN(v2) ? (v1 + v2) / 2 : null;
+        return !isNaN(v1) && !isNaN(v2) ? (v1 + v2) / 2 : undefined;
       });
 
-      const mono1 = avgs1.map((avg, i) =>
-        i === 0 || avg === null || avgs1[i - 1] === null
-          ? true
-          : avg <= (avgs1[i - 1] as number)
-      );
-      const mono2 = avgs2.map((avg, i) =>
-        i === 0 || avg === null || avgs2[i - 1] === null
-          ? true
-          : avg <= (avgs2[i - 1] as number)
-      );
-
-      setMonoOkSet1(mono1);
-      setMonoOkSet2(mono2);
+      setMonoOkSet1(buildMonotonicFlags(avgs1));
+      setMonoOkSet2(buildMonotonicFlags(avgs2));
     });
   };
 
@@ -759,18 +311,7 @@ export default function AcrosetForm({
 
   // --- Validation helpers used by the table and submit flow ---
   function withinPairDeviation(v1: number, v2: number): boolean {
-    return Math.abs(v1 - v2) <= pairDevMaxByUnit[form.unit];
-  }
-  function nonIncreasing(avgs: number[]): boolean {
-    for (let i = 1; i < avgs.length; i++) {
-      if (avgs[i] > avgs[i - 1]) return false;
-    }
-    return true;
-  }
-  function parseNonNeg(s: string): number | null {
-    const n = parseFloat(s);
-    if (isNaN(n) || n < 0) return null;
-    return n;
+    return isWithinPairDeviation(form.unit, v1, v2);
   }
   function inputBorderClass(
     v1s: string,
@@ -797,26 +338,26 @@ export default function AcrosetForm({
     if (!form.rows.length) return false;
     const avgs: number[] = [];
     for (const r of form.rows) {
-      const v1 = parseNonNeg(r.s1_m1);
-      const v2 = parseNonNeg(r.s1_m2);
-      if (v1 === null || v2 === null) return false;
+      const v1 = parseNonNegativeNumber(r.s1_m1);
+      const v2 = parseNonNegativeNumber(r.s1_m2);
+      if (v1 === undefined || v2 === undefined) return false;
       if (!withinPairDeviation(v1, v2)) return false;
       avgs.push((v1 + v2) / 2);
     }
-    return nonIncreasing(avgs);
+    return isNonIncreasing(avgs);
   }, [form.rows, form.unit]);
 
   const set2Valid = React.useMemo<boolean>(() => {
     if (!set1Valid) return false;
     const avgs: number[] = [];
     for (const r of form.rows) {
-      const v1 = parseNonNeg(r.s2_m1);
-      const v2 = parseNonNeg(r.s2_m2);
-      if (v1 === null || v2 === null) return false;
+      const v1 = parseNonNegativeNumber(r.s2_m1);
+      const v2 = parseNonNegativeNumber(r.s2_m2);
+      if (v1 === undefined || v2 === undefined) return false;
       if (!withinPairDeviation(v1, v2)) return false;
       avgs.push((v1 + v2) / 2);
     }
-    return nonIncreasing(avgs);
+    return isNonIncreasing(avgs);
   }, [form.rows, set1Valid, form.unit]);
 
   // Locking prevents accidental edits after a set has passed validation.
@@ -895,10 +436,11 @@ export default function AcrosetForm({
     setSaving(true);
     const shortGuid = Guid.newGuid().toString().slice(0, 4);
     // Run the simple retainer check one more time before saving anything.
-    const current = validateRetainer(
+    const current = validateRetainerMeasurement(
       form.retainerMeasured,
+      retainerLookup,
       modelSpec?.retainer,
-      form.unit as Unit
+      form.unit
     );
     setRetainerCheck(current);
 
@@ -917,10 +459,10 @@ export default function AcrosetForm({
       // the calculation engine.
       const rows: PointRow[] = form.rows.map((r) => ({
         torque_ftlb: r.torque_ftlb,
-        s1_m1: parseNonNeg(r.s1_m1) ?? undefined,
-        s1_m2: parseNonNeg(r.s1_m2) ?? undefined,
-        s2_m1: parseNonNeg(r.s2_m1) ?? undefined,
-        s2_m2: parseNonNeg(r.s2_m2) ?? undefined,
+        s1_m1: parseNonNegativeNumber(r.s1_m1) ?? undefined,
+        s1_m2: parseNonNegativeNumber(r.s1_m2) ?? undefined,
+        s2_m1: parseNonNegativeNumber(r.s2_m1) ?? undefined,
+        s2_m2: parseNonNegativeNumber(r.s2_m2) ?? undefined,
       }));
       const input: ComputeInput = {
         unit: form.unit,
@@ -931,11 +473,8 @@ export default function AcrosetForm({
         retainerMeasured: parseFloat(form.retainerMeasured),
         rows,
         thresholds: {
-          r2Min: 0.95,
-          avgErrMax_ftlb: 5,
-          maxErrMax_ftlb: 10,
-          pairDevMax: pairDevMaxByUnit[form.unit],
-          enforceMonotonic: true,
+          ...defaultCalculationThresholds,
+          pairDevMax: pairDeviationMaxByUnit[form.unit],
         },
       };
 
@@ -969,7 +508,7 @@ export default function AcrosetForm({
 
       // Build both export files before the list item is saved so we can include
       // working file links in the SharePoint row.
-      const resultsCsv = buildresultsCsv({
+      const resultsCsv = buildResultsCsv({
         run_id,
         date_iso: date_iso_ui,
         mechanic_name: form.mechanic,
@@ -985,7 +524,7 @@ export default function AcrosetForm({
 
       const measurementsCsv = buildMeasurementsCsv({
         run_id,
-        rows: form.rows as RowMeas[],
+        rows: form.rows as RowMeasurement[],
         units,
       });
 
@@ -1032,12 +571,12 @@ export default function AcrosetForm({
   // Derived values keep the JSX block below simpler to read.
   const modelOptions = React.useMemo<string[]>(() => {
     if (!form.group) return [];
-    const mm = form.group === "Front" ? FRONT_MODELS : REAR_MODELS;
-    return Object.keys(mm);
+    const modelLookup = form.group === "Front" ? frontModels : rearModels;
+    return Object.keys(modelLookup);
   }, [form.group]);
 
   const unitMeasHdr = form.unit === "Imperial" ? "(in)" : "(mm)";
-  const tolLabel = resultTolByUnit[form.unit];
+  const tolLabel = resultToleranceLabelByUnit[form.unit];
 
   function renderRow(r: Row, idx: number): JSX.Element {
     return (
@@ -1185,7 +724,7 @@ export default function AcrosetForm({
               <option value="" disabled>
                 Select…
               </option>
-              {LOCATIONS.map((loc) => (
+              {locationOptions.map((loc) => (
                 <option key={loc} value={loc}>
                   {loc}
                 </option>
@@ -1201,7 +740,7 @@ export default function AcrosetForm({
               value={form.unit}
               onChange={handleUnitChange}
             >
-              {UNITS.map((u) => (
+              {unitOptions.map((u) => (
                 <option key={u} value={u}>
                   {u}
                 </option>
@@ -1221,7 +760,7 @@ export default function AcrosetForm({
               <option value="" disabled>
                 Select…
               </option>
-              {GROUPS.map((g) => (
+              {groupOptions.map((g) => (
                 <option key={g} value={g}>
                   {g}
                 </option>
@@ -1251,7 +790,7 @@ export default function AcrosetForm({
           </label>
 
           <label className={styles.label}>
-            {measLabelByUnit[form.unit]}
+            {retainerInputLabelByUnit[form.unit]}
             <input
               name="retainerMeasured"
               type="number"
@@ -1374,7 +913,7 @@ export default function AcrosetForm({
               <div className={styles.results}>
                 <h3>Shim Pack Recommendation</h3>
                 <p>
-                  {formatByUnit(form.unit, fit.shimX)} {tolLabel}
+                  {formatValueByUnit(form.unit, fit.shimX)} {tolLabel}
                 </p>
               </div>
             );

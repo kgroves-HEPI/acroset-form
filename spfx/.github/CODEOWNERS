@@ -1,0 +1,7 @@
+# Acroset repository ownership
+* @kgroves-HEPI
+
+/docs/ @kgroves-HEPI
+/src/features/acrosetForm/ @kgroves-HEPI
+/src/platform/sharepoint/ @kgroves-HEPI
+/src/webparts/acrosetForm/ @kgroves-HEPI
