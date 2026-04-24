@@ -24,7 +24,7 @@ const quoteCsvValue = (value: unknown) => {
   let stringValue = String(value);
  
   // Prevent Excel CSV injection
-  if (/^\s*[=+\-@]/.test(stringValue)) {
+  if (/^\s*[=+@]/.test(stringValue)) {
     stringValue = "'" + stringValue;
   }
  
