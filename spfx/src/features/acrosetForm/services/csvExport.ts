@@ -17,11 +17,14 @@ type FitId = "Set1" | "Set2" | "Combined";
 type FitStats = CalcResult["set1"];
 
 const quoteCsvValue = (value: unknown) => {
+  // Nullish values become empty cells so downstream CSV consumers do not see
+  // the strings "null" or "undefined".
   if (value === null || value === undefined) {
     return "";
   }
 
   const stringValue = String(value);
+  // Wrap values that contain CSV control characters and escape embedded quotes.
   return /[",\n]/.test(stringValue)
     ? `"${stringValue.replace(/"/g, '""')}"`
     : stringValue;
@@ -31,6 +34,8 @@ const buildCsvLine = (values: Array<string | number>) =>
   `${values.map(quoteCsvValue).join(",")}\n`;
 
 const toNumberOrBlank = (value: unknown) =>
+  // Keep numeric cells numeric when possible, but leave invalid values blank so
+  // the export remains easy to inspect in Excel and similar tools.
   Number.isFinite(Number(value)) ? Number(value) : "";
 
 export function buildResultsCsv(args: {
@@ -65,6 +70,8 @@ export function buildResultsCsv(args: {
   const fitById = (id: FitId): FitStats | undefined =>
     id === "Set1" ? result.set1 : id === "Set2" ? result.set2 : result.combined;
 
+  // The chosen fit is the one surfaced to the mechanic as the final shim
+  // recommendation, but the export still includes every candidate fit.
   const chosenStats = chosenFit ? fitById(chosenFit) : undefined;
   const chosenShimValue = chosenStats?.shimX ?? "";
   const chosenShimTorque = toNumberOrBlank(
@@ -97,6 +104,8 @@ export function buildResultsCsv(args: {
   const combined = extractStats(result.combined);
 
   let csv = "";
+  // The header names are intentionally explicit because these files act as
+  // handoff artifacts and may be consumed outside the app.
   csv += buildCsvLine([
     "run_id",
     "date_iso",
@@ -146,6 +155,7 @@ export function buildResultsCsv(args: {
     "combined_reject_reason",
   ]);
 
+  // This export writes a single summary row per run.
   csv += buildCsvLine([
     run_id,
     date_iso,
@@ -207,6 +217,8 @@ export function buildMeasurementsCsv(args: {
   const valueUnit = units === "Imperial" ? "in" : "mm";
 
   let csv = "";
+  // The measurement export is the raw audit trail: one row per entered
+  // measurement value, grouped by torque row and set.
   csv += buildCsvLine([
     "run_id",
     "torque_index",
@@ -221,6 +233,8 @@ export function buildMeasurementsCsv(args: {
     const torqueIndex = index + 1;
     const torque = toNumberOrBlank(row.torque_ftlb);
 
+    // Emit the two values from Set 1, then the two values from Set 2, so the
+    // CSV stays easy to scan beside the on-screen measurement table.
     csv += buildCsvLine([
       run_id,
       torqueIndex,

@@ -20,6 +20,8 @@ export async function uploadCsvToFolder(
   const sp = getSP();
   const webAny: any = sp.web as any;
 
+  // Support either PnPjs folder accessor so the helper stays compatible with
+  // the API surface available in the current SPFx environment.
   const folder =
     webAny.getFolderByServerRelativePath?.(folderServerRelativePath) ||
     webAny.getFolderByServerRelativeUrl?.(folderServerRelativePath);
@@ -31,12 +33,16 @@ export async function uploadCsvToFolder(
   }
 
   const filesAny: any = folder.files;
+  // Prefer the newer path-based upload API, but fall back to the older add()
+  // signature if that is what the tenant bundle exposes.
   if (filesAny?.addUsingPath) {
     await filesAny.addUsingPath(fileName, csvText, { Overwrite: true });
   } else {
     await filesAny.add(fileName, csvText, true);
   }
 
+  // Read the saved file back so the caller gets a stable URL and metadata to
+  // persist on the SharePoint list item.
   const fileReference = `${folderServerRelativePath}/${fileName}`;
   const fileSelector =
     webAny.getFileByServerRelativePath?.(fileReference) ||
