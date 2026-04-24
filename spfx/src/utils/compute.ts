@@ -1,4 +1,13 @@
-// utils/compute.ts
+/**
+ * Core calculation engine for the Acroset form.
+ *
+ * The React component is responsible for collecting inputs and displaying
+ * results. This file is responsible for the math only:
+ * - validate the measurement sets
+ * - fit regression lines
+ * - score each candidate fit
+ * - return the best shim recommendation
+ */
 export type Unit = "Imperial" | "Metric";
 export type Group = "Front" | "Rear";
 
@@ -51,7 +60,9 @@ export interface CalcResult {
   message?: string;
 }
 
-// ---------- helpers with explicit return types ----------
+/**
+ * Small helper used when averaging the two measurements in a set.
+ */
 function avg(a: number, b: number): number {
   return (a + b) / 2;
 }
@@ -63,6 +74,13 @@ interface RegressionResult {
   errs: number[]; // residuals y - yhat
 }
 
+/**
+ * Runs a simple linear regression and returns the fit plus residual errors.
+ *
+ * Review note:
+ * - `x` is the corrected measurement value
+ * - `y` is the torque value in ft-lb
+ */
 function regression(x: number[], y: number[]): RegressionResult {
   const n = x.length;
   if (n < 2) {
@@ -92,6 +110,9 @@ function regression(x: number[], y: number[]): RegressionResult {
   return { a, b, r2, errs };
 }
 
+/**
+ * Builds one fit result and derives the shim recommendation from the line.
+ */
 function fitOne(xs: number[], ys_ftlb: number[], preload: number): FitStats {
   const { a, b, r2, errs } = regression(xs, ys_ftlb);
   const absErrs = errs.map((e) => Math.abs(e));
@@ -112,6 +133,10 @@ function fitOne(xs: number[], ys_ftlb: number[], preload: number): FitStats {
   };
 }
 
+/**
+ * Confirms that each average measurement stays the same or decreases as the
+ * torque points move down the table.
+ */
 function checkMonotonic(avgs: number[]): boolean {
   for (let i = 1; i < avgs.length; i++) {
     if (avgs[i] > avgs[i - 1]) return false;
@@ -119,6 +144,12 @@ function checkMonotonic(avgs: number[]): boolean {
   return true;
 }
 
+/**
+ * Validates each pair of measurements before regression.
+ *
+ * Each row has two measurements per set. If the pair is too far apart, the set
+ * is treated as invalid and calculation stops before fitting.
+ */
 function validatePairDeviation(
   rows: PointRow[],
   pairDevMax: number
@@ -150,6 +181,9 @@ function validatePairDeviation(
   return { set1OK, set2OK, avgs1, avgs2 };
 }
 
+/**
+ * Applies business-rule thresholds after a regression line is calculated.
+ */
 function applyThresholds(f: FitStats, th: ComputeInput["thresholds"]): FitStats {
   const reasons: string[] = [];
   if (!(f.r2 >= th.r2Min)) reasons.push(`R² < ${th.r2Min}`);
@@ -158,6 +192,15 @@ function applyThresholds(f: FitStats, th: ComputeInput["thresholds"]): FitStats 
   return reasons.length ? { ...f, ok: false, reasonIfRejected: reasons.join("; ") } : { ...f, ok: true };
 }
 
+/**
+ * Chooses the winning fit.
+ *
+ * The current preference order is:
+ * 1. lowest max error
+ * 2. lowest average error
+ * 3. highest R²
+ * 4. prefer the combined fit as a tie-breaker
+ */
 function chooseBest(a: FitStats, b: FitStats, c: FitStats): { chosen: WhichFit; fit?: FitStats } {
   const candidates: { id: WhichFit; f: FitStats }[] = [];
   if (a.ok) candidates.push({ id: "Set1", f: a });
@@ -182,6 +225,13 @@ function chooseBest(a: FitStats, b: FitStats, c: FitStats): { chosen: WhichFit; 
   return { chosen: candidates[0].id, fit: candidates[0].f };
 }
 
+/**
+ * Main entry point used by the React form.
+ *
+ * This function does not know anything about the UI. It accepts already parsed
+ * values, validates them, performs the math, and returns a plain result object
+ * that the UI can render or save.
+ */
 export function compute(input: ComputeInput): CalcResult {
   const { torqueArray_ftlb, preload, retainerMeasured, rows, thresholds } = input;
 
@@ -191,7 +241,7 @@ export function compute(input: ComputeInput): CalcResult {
     return { ok: false, chosen: "Combined", set1: empty, set2: empty, combined: empty, message };
   }
 
-  // Pair deviation & monotonicity
+  // Reject obviously bad measurement sets before running regression.
   const { set1OK, set2OK, avgs1, avgs2 } = validatePairDeviation(rows, thresholds.pairDevMax);
   if (thresholds.enforceMonotonic) {
     if (set1OK && !checkMonotonic(avgs1)) return fail("Set 1 is not non-increasing");
@@ -206,27 +256,28 @@ export function compute(input: ComputeInput): CalcResult {
     return fail(reason);
   }
 
-// Subtract measured retainer (current unit) before fitting
-let xs1 = avgs1.map((v) => v - retainerMeasured);
-let xs2 = avgs2.map((v) => v - retainerMeasured);
-let xsCombined = xs1.map((v, i) => (v + xs2[i]) / 2);
+  // Convert raw averages into the x-values used by the fit.
+  // The measured retainer is subtracted first so the fit is based on the
+  // corrected clearance value rather than the raw measured number.
+  let xs1 = avgs1.map((v) => v - retainerMeasured);
+  let xs2 = avgs2.map((v) => v - retainerMeasured);
+  let xsCombined = xs1.map((v, i) => (v + xs2[i]) / 2);
 
-let ys = torqueArray_ftlb; // ft-lb
+  let ys = torqueArray_ftlb;
 
-// ---- Filter out the first two AND the last data point ----
-// Requires at least 5 total points so that >=2 remain after trimming.
-if (xs1.length >= 5 && ys.length >= 5) {
-  const START = 2;     // drop first two
-  const END_EXCL = xs1.length - 1; // exclude last index
-  xs1 = xs1.slice(START, END_EXCL);
-  xs2 = xs2.slice(START, END_EXCL);
-  xsCombined = xsCombined.slice(START, END_EXCL);
-  ys = ys.slice(START, END_EXCL);
-}
+  // Trim the same points from every candidate fit.
+  // This preserves the current business rule without mixing different point
+  // counts between Set 1, Set 2, and Combined.
+  if (xs1.length >= 5 && ys.length >= 5) {
+    const START = 2;
+    const END_EXCL = xs1.length - 1;
+    xs1 = xs1.slice(START, END_EXCL);
+    xs2 = xs2.slice(START, END_EXCL);
+    xsCombined = xsCombined.slice(START, END_EXCL);
+    ys = ys.slice(START, END_EXCL);
+  }
 
-
-
-  // Three fits
+  // Evaluate all three candidate fits, then let chooseBest() decide the winner.
   const fit1 = applyThresholds(fitOne(xs1, ys, preload), thresholds);
   const fit2 = applyThresholds(fitOne(xs2, ys, preload), thresholds);
   const fitC = applyThresholds(fitOne(xsCombined, ys, preload), thresholds);
@@ -239,6 +290,9 @@ if (xs1.length >= 5 && ys.length >= 5) {
 
   return { ok: true, chosen: chosen.chosen, chosenFit: chosen.fit, set1: fit1, set2: fit2, combined: fitC };
 
+  /**
+   * Local helper that returns the same "failed" shape used throughout the UI.
+   */
   function fail(message: string): CalcResult {
     const empty: FitStats = { ok: false, a: NaN, b: NaN, r2: NaN, avgErr_ftlb: NaN, maxErr_ftlb: NaN, shimX: NaN, yAtShim_ftlb: NaN, reasonIfRejected: message };
     return { ok: false, chosen: "Combined", set1: empty, set2: empty, combined: empty, message };

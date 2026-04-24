@@ -8,18 +8,18 @@
     "skipFeatureDeployment": true,
     "isDomainIsolated": false,
     "developer": {
-      "name": "",
-      "websiteUrl": "",
-      "privacyUrl": "",
-      "termsOfUseUrl": "",
-      "mpnId": "Undefined-1.20.0"
+      "name": "Kaelan Groves / MSUS Engineering",
+      "websiteUrl": "https://[ENTER-DEVELOPER-OR-COMPANY-WEBSITE]",
+      "privacyUrl": "https://[ENTER-PRIVACY-URL]",
+      "termsOfUseUrl": "https://[ENTER-TERMS-OF-USE-URL]",
+      "mpnId": "[ENTER-MPN-ID-OR-INTERNAL-IDENTIFIER]"
     },
     "metadata": {
       "shortDescription": {
-        "default": "acroset-spfx description"
+        "default": "Acroset SPFx web part for measurement entry, calculation, and SharePoint record submission."
       },
       "longDescription": {
-        "default": "acroset-spfx description"
+        "default": "SharePoint Framework web part used to capture Acroset measurement inputs, run calculation logic, generate CSV outputs, upload those files to SharePoint, and save a summary record to a SharePoint list."
       },
       "screenshotPaths": [],
       "videoUrl": "",
@@ -27,8 +27,8 @@
     },
     "features": [
       {
-        "title": "acroset-spfx Feature",
-        "description": "The feature that activates elements of the acroset-spfx solution.",
+        "title": "Acroset SPFx Web Part Feature",
+        "description": "Activates the Acroset SharePoint Framework web part and related client-side assets.",
         "id": "b350cb63-ffb3-4170-9fcf-b8eb1209b44b",
         "version": "1.0.0.0"
       }

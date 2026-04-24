@@ -11,8 +11,5 @@
       ]
     }
   },
-  "externals": {},
-  "localizedResources": {
-    "AcrosetFormWebPartStrings": "lib/webparts/acrosetForm/loc/{locale}.js"
-  }
+  "externals": {}
 }

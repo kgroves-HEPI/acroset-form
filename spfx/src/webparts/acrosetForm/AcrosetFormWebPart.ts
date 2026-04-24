@@ -1,43 +1,54 @@
 import * as React from 'react';
 import * as ReactDom from 'react-dom';
-import { Version } from '@microsoft/sp-core-library';
+import { Environment, EnvironmentType, Version } from '@microsoft/sp-core-library';
 import {
   type IPropertyPaneConfiguration,
   PropertyPaneTextField
 } from '@microsoft/sp-property-pane';
 import { BaseClientSideWebPart } from '@microsoft/sp-webpart-base';
 import { initSP } from "../../pnpjsConfig";
-
-//import * as strings from 'AcrosetFormWebPartStrings';
 import AcrosetForm from './components/AcrosetForm';
-
-
 
 import "@pnp/sp/webs";
 import "@pnp/sp/lists";
 import "@pnp/sp/items";
-
 
 export interface IAcrosetFormWebPartProps {
   description: string;
   listTitle?: string;
 }
 
+/**
+ * SPFx entry point for the Acroset form web part.
+ *
+ * In simple terms:
+ * - SPFx creates this class when the web part is placed on a page.
+ * - `onInit()` wires up PnPjs so the React app can talk to SharePoint.
+ * - `render()` mounts the React form and passes in the target list title.
+ */
 export default class AcrosetFormWebPart extends BaseClientSideWebPart<IAcrosetFormWebPartProps> {
 
-public onInit(): Promise<void> {
+  /**
+   * Initializes the SharePoint client before any child component tries to use it.
+   */
+  public onInit(): Promise<void> {
     return super.onInit().then(() => {
-      initSP(this.context); // <-- THIS must run before React uses getSP()
+      initSP(this.context);
     });
   }
 
-public render(): void {
-  const element = React.createElement(AcrosetForm, {
-    listTitle: this.properties.listTitle || "Acroset Log", // ← prop to your React component
-  });
+  /**
+   * Renders the React app into the DOM element that SPFx gives this web part.
+   */
+  public render(): void {
+    const element = React.createElement(AcrosetForm, {
+      // This keeps the SharePoint list configurable without changing code.
+      listTitle: this.properties.listTitle || "Acroset Log",
+      isLocalWorkbench: Environment.type === EnvironmentType.Local,
+    });
 
-  ReactDom.render(element, this.domElement);
-}
+    ReactDom.render(element, this.domElement);
+  }
 
 
   protected onDispose(): void {
@@ -54,15 +65,14 @@ public render(): void {
         header: { description: "Settings" },
         groups: [{
           groupFields: [
+            // Reviewers can change the list name here without touching the React code.
             PropertyPaneTextField("listTitle", {
               label: "Target SharePoint list title",
               description: "Display name (e.g., Acroset Log)"
             })
-              ]
-            }
           ]
-        }
-      ]
+        }]
+      }]
     };
   }
 }

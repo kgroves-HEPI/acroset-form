@@ -1,73 +1,183 @@
-# acroset-spfx
+# Acroset SPFx Web Part
 
-## Summary
+## Purpose
 
-Short summary on functionality and used technologies.
+This project is a SharePoint Framework (SPFx) web part used to capture Acroset measurement inputs, run the shim calculation workflow, export CSV outputs, and save a summary record to SharePoint.
 
-[picture of the solution in action, if possible]
+This README is intended to support handoff, onboarding, and operational support. It documents what a new developer or support owner needs in order to run the app locally against the tenant workbench without changing runtime behavior.
 
-## Used SharePoint Framework Version
+## Scope
 
-![version](https://img.shields.io/badge/version-1.20.0-green.svg)
+- Framework: SharePoint Framework `1.20.x`
+- UI: React `17`
+- Data access: PnPjs
+- Runtime target: SharePoint tenant workbench
 
-## Applies to
+## Repository Location
 
-- [SharePoint Framework](https://aka.ms/spfx)
-- [Microsoft 365 tenant](https://docs.microsoft.com/en-us/sharepoint/dev/spfx/set-up-your-developer-tenant)
+- github: https://github.com/kgroves-HEPI/acroset-form.git
 
-> Get your own free development tenant by subscribing to [Microsoft 365 developer program](http://aka.ms/o365devprogram)
+## Runtime Dependencies
 
-## Prerequisites
+The web part depends on SharePoint resources that must already exist and be accessible to the user running the app.
 
-> Any special pre-requisites?
+- SharePoint site:
+  `https://hepartsint.sharepoint.com/teams/MSUSEngineering`
+- Tenant workbench:
+  `https://hepartsint.sharepoint.com/teams/MSUSEngineering/_layouts/15/workbench.aspx`
+- SharePoint list used for saves:
+  `Acroset Log`
+- SharePoint folder for results CSV uploads:
+  `/teams/MSUSEngineering/Acroset Data/Results`
+- SharePoint folder for measurements CSV uploads:
+  `/teams/MSUSEngineering/Acroset Data/Measurements`
 
-## Solution
+If any of those resources are renamed, moved, or permission-restricted, the app may still load but save and upload operations will fail.
 
-| Solution    | Author(s)                                               |
-| ----------- | ------------------------------------------------------- |
-| folder name | Author details (name, company, twitter alias with link) |
+## Local Development Requirements
 
-## Version history
+- Node.js `18.x`
+  Expected range from `package.json`: `>=18.17.1 <19.0.0`
+- npm
+- Trusted SPFx localhost development certificate
+- Access to the tenant and site listed above
+- Permission to the required SharePoint list and folders
 
-| Version | Date             | Comments        |
-| ------- | ---------------- | --------------- |
-| 1.1     | March 10, 2021   | Update comment  |
-| 1.0     | January 29, 2021 | Initial release |
+## Quick Start
 
-## Disclaimer
+1. Open a terminal in the SPFx app root.
 
-**THIS CODE IS PROVIDED _AS IS_ WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING ANY IMPLIED WARRANTIES OF FITNESS FOR A PARTICULAR PURPOSE, MERCHANTABILITY, OR NON-INFRINGEMENT.**
+   ```bash
+   cd .../acroset-form/spfx
+   ```
 
----
+2. Confirm Node version.
 
-## Minimal Path to Awesome
+   ```bash
+   node -v
+   ```
 
-- Clone this repository
-- Ensure that you are at the solution folder
-- in the command-line run:
-  - **npm install**
-  - **gulp serve**
+   Expected:
 
-> Include any additional steps as needed.
+   ```text
+   v18.x.x
+   ```
 
-## Features
+3. Install dependencies.
 
-Description of the extension that expands upon high-level summary above.
+   ```bash
+   npm install
+   ```
 
-This extension illustrates the following concepts:
+4. Trust the local SPFx certificate.
 
-- topic 1
-- topic 2
-- topic 3
+   ```bash
+   gulp trust-dev-cert
+   ```
 
-> Notice that better pictures and documentation will increase the sample usage and the value you are providing for others. Thanks for your submissions advance.
+   If the machine already has a broken or stale certificate:
 
-> Share your web part with others through Microsoft 365 Patterns and Practices program to get visibility and exposure. More details on the community, open-source projects and other activities from http://aka.ms/m365pnp.
+   ```bash
+   gulp untrust-dev-cert
+   gulp trust-dev-cert
+   ```
 
-## References
+5. Start the local dev server.
 
-- [Getting started with SharePoint Framework](https://docs.microsoft.com/en-us/sharepoint/dev/spfx/set-up-your-developer-tenant)
-- [Building for Microsoft teams](https://docs.microsoft.com/en-us/sharepoint/dev/spfx/build-for-teams-overview)
-- [Use Microsoft Graph in your solution](https://docs.microsoft.com/en-us/sharepoint/dev/spfx/web-parts/get-started/using-microsoft-graph-apis)
-- [Publish SharePoint Framework applications to the Marketplace](https://docs.microsoft.com/en-us/sharepoint/dev/spfx/publish-to-marketplace-overview)
-- [Microsoft 365 Patterns and Practices](https://aka.ms/m365pnp) - Guidance, tooling, samples and open-source controls for your Microsoft 365 development
+   ```bash
+   gulp serve
+   ```
+
+6. Open the tenant workbench using the full debug URL.
+
+   ```text
+   https://hepartsint.sharepoint.com/teams/MSUSEngineering/_layouts/15/workbench.aspx?debug=true&noredir=true&debugManifestsFile=https%3A%2F%2Flocalhost%3A4321%2Ftemp%2Fmanifests.js
+   ```
+
+7. Add the `AcrosetForm` web part from the toolbox if it is not already on the page.
+
+## Important Notes
+
+- This project is intended to run from the SharePoint tenant workbench, not the local workbench.
+- Opening only the bare workbench URL without the `debugManifestsFile` query string will not load the local bundle.
+- A certificate trust issue on `https://localhost:4321` will prevent the workbench from loading the web part.
+
+## Operational Behavior
+
+At a high level, the app does the following:
+
+1. Loads local JSON lookup data from `src/data`.
+2. Collects form inputs from the user.
+3. Runs calculation logic from `src/utils/compute.ts`.
+4. Generates results and measurements CSV content.
+5. Uploads those CSV files to SharePoint folders.
+6. Saves a summary list item to SharePoint.
+
+## Key Files
+
+- Web part entry point:
+  `src/webparts/acrosetForm/AcrosetFormWebPart.ts`
+- Main React component:
+  `src/webparts/acrosetForm/components/AcrosetForm.tsx`
+- Calculation engine:
+  `src/utils/compute.ts`
+- PnPjs setup:
+  `src/pnpjsConfig.ts`
+- Local debug serve settings:
+  `config/serve.json`
+- Packaging settings:
+  `config/package-solution.json`
+
+## Handoff Checklist
+
+Before handing this project to another developer, confirm the following:
+
+- The new owner can access the tenant workbench URL.
+- The new owner can load `https://localhost:4321/temp/manifests.js` while `gulp serve` is running.
+- The new owner knows which SharePoint list and folders are required.
+- The new owner knows the required Node version is `18.x`.
+- The new owner has the correct debug URL for tenant workbench loading.
+- The new owner knows who owns the SharePoint resources and business rules.
+
+## Ownership Template
+
+Fill these values in before formal handoff:
+
+- Technical owner:
+  `Kaelan Groves/ MSUS ENGINEERING`
+- Business owner:
+  `Jill Renfroe/ IT`
+- SharePoint site owner:
+  `Chris Berry/ MSUS ENGINEERING`
+- List schema owner:
+  `Global Engineering`
+- Folder/library owner:
+  `Jill Renfroe / IT`
+- Support contact:
+  `kaelan.groves@hepi.com`
+  `chris.berry@hepi.com`
+  `jill.renfroe@hepi.com`
+
+## Environment Template
+
+Fill these values in if this app will be supported outside the current tenant or by another team:
+
+- Production tenant URL:
+  `[ENTER VALUE]`
+- Non-production tenant URL:
+  `[ENTER VALUE]`
+- Required Azure / M365 groups:
+  `[ENTER VALUE]`
+- App catalog location:
+  `[ENTER VALUE]`
+- Deployment process:
+  `[ENTER VALUE]`
+- Release approver:
+  `[ENTER VALUE]`
+
+## Known Constraints
+
+- Tenant-specific URLs and SharePoint resource names are currently embedded in configuration and code.
+- The app assumes the SharePoint list and target folders already exist.
+- The current codebase does not yet provide a complete authored test suite for business logic or SharePoint integration.
+

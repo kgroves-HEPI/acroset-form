@@ -23,11 +23,28 @@ import locationList from "../../../data/locationList.json";
 
 import { Guid } from "@microsoft/sp-core-library";
 
-//Retainer thickness Validation
+/**
+ * Main React UI for the Acroset submission flow.
+ *
+ * High-level responsibilities:
+ * - load lookup data from local JSON files
+ * - collect and validate mechanic inputs
+ * - call the calculation engine
+ * - upload CSV outputs to SharePoint folders
+ * - save a run summary to a SharePoint list
+ *
+ * This file is intentionally large because the project started as a prototype.
+ * The goal of the comments below is to make the current behavior easier to
+ * review without changing the implementation yet.
+ */
+
 // --- Retainer validation helpers ---
 const IN_TO_MM = 25.4 as const;
 type ValidTier = "good" | "warn" | "error" | "unknown";
 
+/**
+ * Returns the acceptable retainer delta thresholds for the selected unit system.
+ */
 function thresholdsByUnit(unit: Unit) {
   // Good:  -0.010..+0.010 in
   // Warn:  -0.030..-0.010 in
@@ -45,6 +62,9 @@ function thresholdsByUnit(unit: Unit) {
   };
 }
 
+/**
+ * Looks up the nominal retainer thickness for the selected model.
+ */
 function getNominalRetainer(
   retainerKey: string,
   unit: Unit
@@ -54,6 +74,12 @@ function getNominalRetainer(
   return unit === "Imperial" ? rec.in : rec.mm;
 }
 
+/**
+ * Classifies the measured retainer value so the UI can give immediate feedback.
+ *
+ * This check happens before the full regression math. It is a quick sanity check
+ * against the nominal retainer value from the lookup data.
+ */
 function validateRetainer(
   measuredStr: string,
   retainerKey: string | undefined,
@@ -84,7 +110,7 @@ function validateRetainer(
   };
 }
 
-// CSV BLOCK
+// --- CSV export helpers ---
 
 type FitId = "Set1" | "Set2" | "Combined";
 type FitStats = CalcResult["set1"];
@@ -111,7 +137,12 @@ const csvLine = (arr: (string | number)[]) =>
 const toNumberOrBlank = (v: any) =>
   Number.isFinite(Number(v)) ? Number(v) : "";
 
-// Build results CSV (one row) with exact headers approved
+/**
+ * Builds the one-row "results" CSV that summarizes the final calculation.
+ *
+ * The column names are intentionally explicit because downstream consumers may
+ * rely on them exactly as written.
+ */
 function buildresultsCsv(args: {
   run_id: string;
   date_iso: string;
@@ -147,22 +178,22 @@ function buildresultsCsv(args: {
 
   const chosenStats = chosen_fit ? byFit(chosen_fit) : undefined;
   const chosen_shim_value = chosenStats?.shimX ?? "";
-  const chosen_shim_torque = toNumberOrBlank((chosenStats as any)?.yAtShim_ftlb); // ← NEW
+  const chosen_shim_torque = toNumberOrBlank((chosenStats as any)?.yAtShim_ftlb);
   const calc_status = result.ok ? "Pass" : "Fail";
 
   const extract = (fs?: FitStats) => {
-  const anyFs = fs as any;
-  const slope = toNumberOrBlank(anyFs?.slope ?? anyFs?.a);        // ← add a fallback
-  const intercept = toNumberOrBlank(anyFs?.intercept ?? anyFs?.b); // ← add b fallback
-  const r2 = toNumberOrBlank(anyFs?.r2);
-  const avg = toNumberOrBlank(anyFs?.avgErr_ftlb);
-  const max = toNumberOrBlank(anyFs?.maxErr_ftlb);
-  const shim = toNumberOrBlank(anyFs?.shimX);
-  const shimTorque = toNumberOrBlank(anyFs?.yAtShim_ftlb);         // ← NEW
-  const status = anyFs?.ok === undefined ? "" : anyFs.ok ? "Pass" : "Fail";
-  const reason = anyFs?.ok ? "" : anyFs?.reasonIfRejected ?? "";
-  return { slope, intercept, r2, avg, max, shim, shimTorque, status, reason };
-};
+    const anyFs = fs as any;
+    const slope = toNumberOrBlank(anyFs?.slope ?? anyFs?.a);
+    const intercept = toNumberOrBlank(anyFs?.intercept ?? anyFs?.b);
+    const r2 = toNumberOrBlank(anyFs?.r2);
+    const avg = toNumberOrBlank(anyFs?.avgErr_ftlb);
+    const max = toNumberOrBlank(anyFs?.maxErr_ftlb);
+    const shim = toNumberOrBlank(anyFs?.shimX);
+    const shimTorque = toNumberOrBlank(anyFs?.yAtShim_ftlb);
+    const status = anyFs?.ok === undefined ? "" : anyFs.ok ? "Pass" : "Fail";
+    const reason = anyFs?.ok ? "" : anyFs?.reasonIfRejected ?? "";
+    return { slope, intercept, r2, avg, max, shim, shimTorque, status, reason };
+  };
 
   const s1 = extract(result.set1);
   const s2 = extract(result.set2);
@@ -272,7 +303,11 @@ function buildresultsCsv(args: {
   return csv;
 }
 
-// Build Measurements CSV (long/tidy) with exact headers approved
+/**
+ * Builds the detailed measurements CSV.
+ *
+ * This is the audit trail version of the export: one row per measurement value.
+ */
 function buildMeasurementsCsv(args: {
   run_id: string;
   rows: RowMeas[];
@@ -340,6 +375,13 @@ function buildMeasurementsCsv(args: {
   return csv;
 }
 
+/**
+ * Uploads a CSV string to a SharePoint folder and returns the saved file info.
+ *
+ * The code supports both older and newer PnPjs folder/file APIs because the
+ * production tenant may not always align with the exact API style used during
+ * prototyping.
+ */
 async function uploadCsvToFolder(
   folderServerRelativePath: string,
   fileName: string,
@@ -391,9 +433,10 @@ async function uploadCsvToFolder(
 
 interface AcrosetFormProps {
   listTitle: string;
+  isLocalWorkbench?: boolean;
 }
 
-// --- types matching your JSONs ---
+// --- Types that describe the shape of the local JSON lookup files ---
 type UnitValue = { in: number; mm: number };
 
 type PreloadList = Record<string, UnitValue>;
@@ -454,47 +497,41 @@ type FormState = {
 
 export default function AcrosetForm({
   listTitle,
+  isLocalWorkbench = false,
 }: AcrosetFormProps): JSX.Element {
-  // derive typed data
-  const FRONT_MODELS = modelFront as unknown as ModelMap; // front
-  const REAR_MODELS = modelRear as unknown as ModelMap; // rear
+  // Convert imported JSON into typed lookup maps used throughout the form.
+  const FRONT_MODELS = modelFront as unknown as ModelMap;
+  const REAR_MODELS = modelRear as unknown as ModelMap;
   const PRELOADS = preloadList as unknown as PreloadList;
   const RETAINERS = retainerList as unknown as RetainerList;
   const TORQUES = torqueArrayList as unknown as TorqueArrayList;
-  const UNITS = unitsList as Unit[]; // ["Imperial","Metric"]
-  const GROUPS = groupList as Group[]; // ["front","rear"]
+  const UNITS = unitsList as Unit[];
+  const GROUPS = groupList as Group[];
   const LOCATIONS = locationList as string[];
 
+  // Result and status state used to drive the messages shown under the form.
   const [calcResult, setCalcResult] = React.useState<CalcResult | null>(null);
   const [status, setStatus] = React.useState<string | null>(null);
 
+  // Each measurement set is validated and locked independently.
   const [set1Status, setSet1Status] = React.useState<string | null>(null);
   const [set2Status, setSet2Status] = React.useState<string | null>(null);
   const [set1Locked, setSet1Locked] = React.useState<boolean>(false);
   const [set2Locked, setSet2Locked] = React.useState<boolean>(false);
 
-  // track "blurred" state per-row per set (to gate locking)
+  // Tracks whether each row was completed and blurred so we only lock a set
+  // after the user has actually finished entering every row.
   const [set1Blurred, setSet1Blurred] = React.useState<boolean[]>([]);
   const [set2Blurred, setSet2Blurred] = React.useState<boolean[]>([]);
 
+  // Per-row monotonic checks let the UI show red/green feedback as data is typed.
   const [monoOkSet1, setMonoOkSet1] = React.useState<boolean[]>([]);
   const [monoOkSet2, setMonoOkSet2] = React.useState<boolean[]>([]);
 
   const [saving, setSaving] = React.useState(false);
-  // near your other useState inits, if you want today's default:
-  const todayYmd = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+  const todayYmd = new Date().toISOString().slice(0, 10);
 
-  //const testConnectivity = async (): Promise<void> => {
-  //try {
-  // const sp = getSP();
-  // const list = await sp.web.lists.getByTitle(listTitle)(); // throws if wrong / no permission
-  //const anyItem = await sp.web.lists.getByTitle(listTitle).items.select("Id").top(1)();
-  //alert(`✅ Connected to "${list.Title}". Read ok, items found: ${anyItem.length}`);
-  //} catch (e: any) {
-  //alert(`❌ Connection failed: ${e?.message ?? e}`);
-  //}
-  //};
-  // --- Component state for validation result ---
+  // Stores the retainer "good / warn / error" message shown near the input.
   const [retainerCheck, setRetainerCheck] = React.useState<{
     status: ValidTier;
     msg: string;
@@ -514,7 +551,8 @@ export default function AcrosetForm({
     rows: [],
   });
 
-  // 1) derive model spec first
+  // Look up the chosen model so the rest of the form can pull the correct
+  // preload, retainer, and torque-array values from the JSON lookup tables.
   const modelSpec: ModelSpec | null = React.useMemo(() => {
     if (!form.group || !form.modelKey) return null;
     const isFront = (form.group || "").toLowerCase() === "front";
@@ -522,20 +560,24 @@ export default function AcrosetForm({
     return (mm[form.modelKey] as ModelSpec) ?? null;
   }, [form.group, form.modelKey]);
 
-  // 2) then use it inside the effect
+  // Re-run the quick retainer sanity check whenever the user changes the value,
+  // the unit system, or the selected model.
   React.useEffect(() => {
-    const retainerKey = modelSpec?.retainer; // may be undefined
+    const retainerKey = modelSpec?.retainer;
     setRetainerCheck(
       validateRetainer(form.retainerMeasured, retainerKey, form.unit as Unit)
     );
   }, [form.retainerMeasured, form.unit, modelSpec?.retainer]);
 
+  // Pull the torque points for the chosen model. These torque values determine
+  // how many measurement rows the table should show.
   const torqueArray: number[] = React.useMemo<number[]>(() => {
     if (!modelSpec) return [];
     const key = modelSpec.TorqueArray;
     return TORQUES[key] ?? [];
   }, [modelSpec]);
 
+  // Used as the input placeholder so the mechanic can see the expected nominal value.
   const nominalRetainerPlaceholder = React.useMemo<string>(() => {
     if (!modelSpec) return "";
     const r = RETAINERS[modelSpec.retainer];
@@ -543,13 +585,15 @@ export default function AcrosetForm({
     return formatByUnit(form.unit, pickByUnit(form.unit, r));
   }, [modelSpec, form.unit]);
 
+  // Preload is calculated from lookup data, not typed by the user.
   const preloadValue = React.useMemo<number>(() => {
     if (!modelSpec) return 0;
     const p = PRELOADS[modelSpec.preload];
     return p ? pickByUnit(form.unit, p) : 0;
   }, [modelSpec, form.unit]);
 
-  // when torque array changes, re-initialize rows & blur tracking
+  // Reset the measurement grid whenever the selected model changes to one with a
+  // different torque profile.
   React.useEffect((): void => {
     const newRows: Row[] = torqueArray.map((t) => ({
       torque_ftlb: t,
@@ -569,7 +613,7 @@ export default function AcrosetForm({
     setStatus(null);
   }, [torqueArray]);
 
-  // --- UI change handlers (explicit return types) ---
+  // --- UI change handlers ---
   const onChangeText = (e: React.ChangeEvent<HTMLInputElement>): void => {
     const { name, value } = e.target;
     setForm((prev) => ({ ...prev, [name]: value }));
@@ -640,19 +684,19 @@ export default function AcrosetForm({
       | "s2_m1"
       | "s2_m2";
 
-    // ---- Build a nextRows snapshot with the formatted value
+    // Use a copied snapshot so the formatting and validation logic all refer to
+    // the same row values during this blur event.
     const nextRows = [...form.rows];
     const formatted = n.toFixed(dec);
     nextRows[rowIdx] = { ...nextRows[rowIdx], [field]: formatted };
 
-    // ---- 1) Commit the formatted value first
+    // Save the formatted value first so the UI shows the standardized precision.
     setForm((prev) => ({ ...prev, rows: nextRows }));
 
-    // ---- 2) After commit: mark row blurred only when its pair is complete,
-    //        AND recompute monotonicity using the SAME nextRows snapshot.
-    //        Use a microtask to ensure the UI paints the new value first.
+    // After the save, update the row-complete flags and the per-row monotonic
+    // indicators using the same snapshot to avoid stale state reads.
     Promise.resolve().then(() => {
-      // flip blurred for this row only when both cells for that set are filled
+      // Mark this row as "completed" only once both measurements in the pair exist.
       if (setNum === 1) {
         const r = nextRows[rowIdx];
         const bothFilled = r.s1_m1 !== "" && r.s1_m2 !== "";
@@ -677,7 +721,7 @@ export default function AcrosetForm({
         }
       }
 
-      // recompute per-row monotonicity flags from nextRows (no stale reads)
+      // Recalculate red/green borders for the full set after each edit.
       const avgs1 = nextRows.map((r) => {
         const v1 = parseFloat(r.s1_m1);
         const v2 = parseFloat(r.s1_m2);
@@ -713,7 +757,7 @@ export default function AcrosetForm({
     }
   };
 
-  // --- validation helpers (explicit return types) ---
+  // --- Validation helpers used by the table and submit flow ---
   function withinPairDeviation(v1: number, v2: number): boolean {
     return Math.abs(v1 - v2) <= pairDevMaxByUnit[form.unit];
   }
@@ -747,7 +791,8 @@ export default function AcrosetForm({
     return pairOk && monoOk ? styles.inputValid : styles.inputInvalid;
   }
 
-  // set-level validators (explicit return types)
+  // Set 2 stays blocked until Set 1 is complete and valid. This matches the
+  // current shop-floor workflow captured in the prototype.
   const set1Valid = React.useMemo<boolean>(() => {
     if (!form.rows.length) return false;
     const avgs: number[] = [];
@@ -774,7 +819,7 @@ export default function AcrosetForm({
     return nonIncreasing(avgs);
   }, [form.rows, set1Valid, form.unit]);
 
-  // lock sets when valid + all blurred
+  // Locking prevents accidental edits after a set has passed validation.
   React.useEffect((): void => {
     if (set1Valid && set1Blurred.every(Boolean) && !set1Locked) {
       setSet1Status("✅ Set 1 inputs validated");
@@ -789,7 +834,7 @@ export default function AcrosetForm({
     }
   }, [set2Valid, set2Blurred, set2Locked]);
 
-  // ----- typed handler wrappers to avoid inline arrow functions -----
+  // Small wrappers keep the JSX easier to read later in the file.
   const handleTextChange: React.ChangeEventHandler<HTMLInputElement> = (
     e
   ): void => onChangeText(e);
@@ -831,7 +876,17 @@ export default function AcrosetForm({
       onBlurNumberCell(e, rowIdx, setNum);
   }
 
-  // --- submit / calculate (explicit return types) ---
+  /**
+   * Handles the full "Calculate & Submit" flow.
+   *
+   * Sequence:
+   * 1. Re-check the retainer sanity rules
+   * 2. Build the typed calculation input
+   * 3. Run the regression engine
+   * 4. Generate both CSV exports
+   * 5. Upload the CSVs to SharePoint folders
+   * 6. Save a SharePoint list item that links to those files
+   */
   const handleSubmit = async (
     e: React.FormEvent<HTMLFormElement>
   ): Promise<void> => {
@@ -839,7 +894,7 @@ export default function AcrosetForm({
     if (saving) return;
     setSaving(true);
     const shortGuid = Guid.newGuid().toString().slice(0, 4);
-    // before you build ComputeInput / call compute(...)
+    // Run the simple retainer check one more time before saving anything.
     const current = validateRetainer(
       form.retainerMeasured,
       modelSpec?.retainer,
@@ -858,7 +913,8 @@ export default function AcrosetForm({
     }
 
     try {
-      // --- build input & run calculations  ---
+      // Convert string inputs from the form into the typed shape expected by
+      // the calculation engine.
       const rows: PointRow[] = form.rows.map((r) => ({
         torque_ftlb: r.torque_ftlb,
         s1_m1: parseNonNeg(r.s1_m1) ?? undefined,
@@ -896,7 +952,6 @@ export default function AcrosetForm({
         return new Date(`${ymd}T12:00:00Z`).toISOString();
       };
 
-      // inside handleSubmit, before building payload:
       const dateIso = form.date ? ymdToIso(form.date) : null;
       if (!dateIso) {
         setStatus("❌ Invalid date. Pick a valid date.");
@@ -904,15 +959,16 @@ export default function AcrosetForm({
         return;
       }
 
-      // 2) Prepare run + common fields
+      // This ID ties the SharePoint list item and both CSV files together.
       const run_id = `${form.wo}_${form.date}_${shortGuid}`;
-      const date_iso_ui = form.date; // "YYYY-MM-DD" coming from your UI
-      const units: Unit = form.unit as Unit; // "Imperial" | "Metric"
+      const date_iso_ui = form.date;
+      const units: Unit = form.unit as Unit;
       const preload_ftlb =
         typeof input.preload === "number" ? input.preload : preloadValue;
       const retainer_measured_value = Number(form.retainerMeasured ?? 0);
 
-      // 3) Build CSV contents EXACTLY as approved
+      // Build both export files before the list item is saved so we can include
+      // working file links in the SharePoint row.
       const resultsCsv = buildresultsCsv({
         run_id,
         date_iso: date_iso_ui,
@@ -933,7 +989,7 @@ export default function AcrosetForm({
         units,
       });
 
-      // 4) Upload both files to your folders
+      // Upload the exports first. If an upload fails, we do not create the list item.
       const fileBase = `run_${run_id}`;
       const resultsName = `${fileBase}_results.csv`;
       const measurementsName = `${fileBase}_measurements.csv`;
@@ -949,23 +1005,15 @@ export default function AcrosetForm({
         measurementsCsv
       );
 
-      // --- save to SharePoint regardless of pass/fail ---
+      // Save the summary row even when the calculation fails so operations still
+      // have a record of the attempt and the raw measurement export.
       const payload: Record<string, any> = {
         Title: `${form.wo || "WO"}-${form.modelKey || "Model"}-${form.group}-${
           form.location
         }`,
         Date: dateIso,
         Mechanic: form.mechanic,
-        //WorkOrder: form.wo,
-        //Location: form.location,
-        //Group: form.group,
-        //Model: form.modelKey,
-        //Retainer: parseFloat(form.retainerMeasured),
-        //Measurements: JSON.stringify(form.rows),
         Status: result.ok ? "Pass" : result.message ?? "Fail",
-        // CalcOk: result.ok,           // (optional Yes/No column)
-
-        //Units: form.unit,
         ResultsCsvUrl: { Url: resultsUrl, Description: resultsName },
         MeasurementsCsvUrl: {
           Url: measurementsUrl,
@@ -981,7 +1029,7 @@ export default function AcrosetForm({
     }
   };
 
-  // --- derived UI bits ---
+  // Derived values keep the JSX block below simpler to read.
   const modelOptions = React.useMemo<string[]>(() => {
     if (!form.group) return [];
     const mm = form.group === "Front" ? FRONT_MODELS : REAR_MODELS;
@@ -996,7 +1044,7 @@ export default function AcrosetForm({
       <tr key={r.torque_ftlb}>
         <td>{r.torque_ftlb}</td>
 
-        {/* Set 1 */}
+        {/* Set 1 must be completed first and locks once it passes validation. */}
         <td>
           <input
             className={`${styles.input} ${inputBorderClass(
@@ -1034,7 +1082,7 @@ export default function AcrosetForm({
           />
         </td>
 
-        {/* Set 2 */}
+        {/* Set 2 only unlocks after Set 1 is complete. */}
         <td>
           <input
             className={`${styles.input} ${inputBorderClass(
@@ -1079,8 +1127,16 @@ export default function AcrosetForm({
     <div className={styles.card}>
       <h2 className={styles.h2}>Acroset — Request Form</h2>
 
+      {isLocalWorkbench && (
+        <div className={styles.notice} role="alert">
+          This web part depends on SharePoint lists and document libraries, so
+          it must be loaded from the SharePoint tenant workbench instead of the
+          local workbench.
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className={styles.form}>
-        {/* Top row */}
+        {/* Top section: run metadata and model selection. */}
         <div className={styles.gridFormRow}>
           <label className={styles.label}>
             Date
@@ -1251,7 +1307,7 @@ export default function AcrosetForm({
           )}
         </div>
 
-        {/* --- Measurements --- */}
+        {/* Measurement grid generated from the selected model's torque array. */}
         <h3 className={styles.section}>Measurements</h3>
         <div className={styles.tableWrapper}>
           <table className={styles.table}>
@@ -1281,6 +1337,7 @@ export default function AcrosetForm({
           type="submit"
           className={styles.button}
           disabled={
+            isLocalWorkbench ||
             saving || // ⬅ prevent double clicks
             !form.location ||
             !form.group ||
