@@ -17,14 +17,18 @@ type FitId = "Set1" | "Set2" | "Combined";
 type FitStats = CalcResult["set1"];
 
 const quoteCsvValue = (value: unknown) => {
-  // Nullish values become empty cells so downstream CSV consumers do not see
-  // the strings "null" or "undefined".
   if (value === null || value === undefined) {
     return "";
   }
-
-  const stringValue = String(value);
-  // Wrap values that contain CSV control characters and escape embedded quotes.
+ 
+  let stringValue = String(value);
+ 
+  // Prevent Excel CSV injection
+  if (/^\s*[=+\-@]/.test(stringValue)) {
+    stringValue = "'" + stringValue;
+  }
+ 
+  // Existing CSV escaping
   return /[",\n]/.test(stringValue)
     ? `"${stringValue.replace(/"/g, '""')}"`
     : stringValue;

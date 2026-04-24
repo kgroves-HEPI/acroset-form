@@ -42,4 +42,4 @@ Note: The snap on torque wrench spec was used to derive the thresholds of the li
 The thresholds were simplified to average error: 5 ft-lbs and max error 10 ft-lbs for the points used to calculate the regression.
 
 -- [1] Compare set 1 and set 2 measurements
-Assuming that set points are within allowable tolerance. Pick set 1, set 2, or the average of both sets based on smallest average error. 
+Assuming that set points are within allowable tolerance. Pick set 1, set 2, or the average of both sets (combined) based lowest max error, then avg error, then highest R², then prefers Combined.
