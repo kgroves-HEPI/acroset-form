@@ -97,7 +97,7 @@ export function validateRetainerMeasurement(
     };
   }
 
-  // ** CALCULATION WILL NOT RUN IN THIS STATE ** Red blocks submission because the measurement is outside the expected range.
+  // Red blocks submission for oversized retainers, while undersized retainers may proceed.
   return {
     status: "error",
     msg: "Value seems unrealistic or retainer has been skim cut. Double check entry and reusability criteria.",

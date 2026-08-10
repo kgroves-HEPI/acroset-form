@@ -24,6 +24,7 @@ export interface ComputeInput {
   unit: Unit;
   group: Group;
   modelKey: string;
+  measurementSetCount?: 1 | 2;
   torqueArray_ftlb: number[]; // authoritative y-values, always ft-lb
   preload: number;            // in current unit (from preloadList)
   retainerMeasured: number;   // in current unit (from user input)
@@ -234,7 +235,7 @@ function chooseBest(a: FitStats, b: FitStats, c: FitStats): { chosen: WhichFit; 
  * that the UI can render or save.
  */
 export function compute(input: ComputeInput): CalcResult {
-  const { torqueArray_ftlb, preload, retainerMeasured, rows, thresholds } = input;
+  const { torqueArray_ftlb, preload, retainerMeasured, rows, thresholds, measurementSetCount = 2 } = input;
 
   if (rows.length !== torqueArray_ftlb.length) {
     const message = "Row count mismatch";
@@ -246,10 +247,12 @@ export function compute(input: ComputeInput): CalcResult {
   const { set1OK, set2OK, avgs1, avgs2 } = validatePairDeviation(rows, thresholds.pairDevMax);
   if (thresholds.enforceMonotonic) {
     if (set1OK && !checkMonotonic(avgs1)) return fail("Set 1 is not non-increasing");
-    if (set2OK && !checkMonotonic(avgs2)) return fail("Set 2 is not non-increasing");
+    if (measurementSetCount === 2 && set2OK && !checkMonotonic(avgs2)) return fail("Set 2 is not non-increasing");
   }
-  if (!set1OK || !set2OK) {
-    const reason = !set1OK && !set2OK
+  if (!set1OK || (measurementSetCount === 2 && !set2OK)) {
+    const reason = measurementSetCount === 1
+      ? "Pair deviation invalid in Set 1"
+      : !set1OK && !set2OK
       ? "Pair deviation invalid in both sets"
       : !set1OK
       ? "Pair deviation invalid in Set 1"
@@ -280,6 +283,14 @@ export function compute(input: ComputeInput): CalcResult {
 
   // Evaluate all three candidate fits, then let chooseBest() decide the winner.
   const fit1 = applyThresholds(fitOne(xs1, ys, preload), thresholds);
+  if (measurementSetCount === 1) {
+    const notEntered: FitStats = { ok: false, a: NaN, b: NaN, r2: NaN, avgErr_ftlb: NaN, maxErr_ftlb: NaN, shimX: NaN, yAtShim_ftlb: NaN, reasonIfRejected: "Not entered" };
+    if (!fit1.ok) {
+      const message = `Calculation Failed! Engineering has been notified of the issue. Please retry acroset process and recalculate.`;
+      return { ok: false, chosen: "Set1", set1: fit1, set2: notEntered, combined: notEntered, message };
+    }
+    return { ok: true, chosen: "Set1", chosenFit: fit1, set1: fit1, set2: notEntered, combined: notEntered };
+  }
   const fit2 = applyThresholds(fitOne(xs2, ys, preload), thresholds);
   const fitC = applyThresholds(fitOne(xsCombined, ys, preload), thresholds);
 

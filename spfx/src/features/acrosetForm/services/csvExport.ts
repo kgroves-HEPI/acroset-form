@@ -40,7 +40,7 @@ const buildCsvLine = (values: Array<string | number>) =>
 const toNumberOrBlank = (value: unknown) =>
   // Keep numeric cells numeric when possible, but leave invalid values blank so
   // the export remains easy to inspect in Excel and similar tools.
-  Number.isFinite(Number(value)) ? Number(value) : "";
+  value !== "" && Number.isFinite(Number(value)) ? Number(value) : "";
 
 export function buildResultsCsv(args: {
   run_id: string;

@@ -77,6 +77,7 @@ export default function AcrosetForm({
   const [set2Status, setSet2Status] = React.useState<string | null>(null);
   const [set1Locked, setSet1Locked] = React.useState<boolean>(false);
   const [set2Locked, setSet2Locked] = React.useState<boolean>(false);
+  const [measurementSetCount, setMeasurementSetCount] = React.useState<1 | 2>(2);
 
   // Tracks whether each row was completed and blurred so we only lock a set
   // after the user has actually finished entering every row.
@@ -444,10 +445,13 @@ export default function AcrosetForm({
     );
     setRetainerCheck(current);
 
-    if (current.status === "error") {
+    if (
+      current.status === "error" &&
+      !(typeof current.delta === "number" && current.delta < 0)
+    ) {
       setStatus("❌ " + current.msg);
       setSaving(false);
-      return; // block calculation/save on red tier
+      return; // block calculation/save for oversized red tier
     }
     // (optional) if you want a subtle heads-up on warn:
     if (current.status === "warn") {
@@ -468,6 +472,7 @@ export default function AcrosetForm({
         unit: form.unit,
         group: form.group as Group,
         modelKey: form.modelKey,
+        measurementSetCount,
         torqueArray_ftlb: torqueArray,
         preload: preloadValue,
         retainerMeasured: parseFloat(form.retainerMeasured),
@@ -622,7 +627,9 @@ export default function AcrosetForm({
         </td>
 
         {/* Set 2 only unlocks after Set 1 is complete. */}
-        <td>
+        {measurementSetCount === 2 && (
+          <>
+          <td>
           <input
             className={`${styles.input} ${inputBorderClass(
               r.s2_m1,
@@ -639,8 +646,8 @@ export default function AcrosetForm({
             onBlur={makeOnBlurCell(idx, 2)}
             disabled={!set1Locked || set2Locked}
           />
-        </td>
-        <td>
+          </td>
+          <td>
           <input
             className={`${styles.input} ${inputBorderClass(
               r.s2_m1,
@@ -657,7 +664,9 @@ export default function AcrosetForm({
             onBlur={makeOnBlurCell(idx, 2)}
             disabled={!set1Locked || set2Locked}
           />
-        </td>
+          </td>
+          </>
+        )}
       </tr>
     );
   }
@@ -745,6 +754,35 @@ export default function AcrosetForm({
                   {u}
                 </option>
               ))}
+            </select>
+          </label>
+
+          <label className={styles.label}>
+            Measurement Sets
+            <select
+              className={styles.input}
+              name="measurementSetCount"
+              value={measurementSetCount}
+              onChange={(e) => {
+                const nextCount = Number(e.target.value) as 1 | 2;
+                setMeasurementSetCount(nextCount);
+                if (nextCount === 1) {
+                  setForm((prev) => ({
+                    ...prev,
+                    rows: prev.rows.map((row) => ({
+                      ...row,
+                      s2_m1: "",
+                      s2_m2: "",
+                    })),
+                  }));
+                  setSet2Blurred(form.rows.map(() => false));
+                  setSet2Locked(false);
+                  setSet2Status(null);
+                }
+              }}
+            >
+              <option value={2}>Two sets</option>
+              <option value={1}>One set</option>
             </select>
           </label>
 
@@ -854,13 +892,17 @@ export default function AcrosetForm({
               <tr>
                 <th rowSpan={2}>Torque (ft-lb)</th>
                 <th colSpan={2}>Set 1 {unitMeasHdr}</th>
-                <th colSpan={2}>Set 2 {unitMeasHdr}</th>
+                {measurementSetCount === 2 && <th colSpan={2}>Set 2 {unitMeasHdr}</th>}
               </tr>
               <tr>
                 <th>Meas. #1</th>
                 <th>Meas. #2</th>
-                <th>Meas. #1</th>
-                <th>Meas. #2</th>
+                {measurementSetCount === 2 && (
+                  <>
+                    <th>Meas. #1</th>
+                    <th>Meas. #2</th>
+                  </>
+                )}
               </tr>
             </thead>
             <tbody>{form.rows.map(renderRow)}</tbody>
@@ -883,7 +925,7 @@ export default function AcrosetForm({
             !form.modelKey ||
             !form.retainerMeasured ||
             !set1Valid ||
-            !set2Valid
+            (measurementSetCount === 2 && !set2Valid)
           }
         >
           {saving ? "Saving…" : "Calculate & Submit"}
