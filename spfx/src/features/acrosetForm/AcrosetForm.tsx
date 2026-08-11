@@ -89,6 +89,7 @@ export default function AcrosetForm({
   const [monoOkSet2, setMonoOkSet2] = React.useState<boolean[]>([]);
 
   const [saving, setSaving] = React.useState(false);
+  const [saved, setSaved] = React.useState(false);
   const todayYmd = new Date().toISOString().slice(0, 10);
 
   // Stores the retainer "good / warn / error" message shown near the input.
@@ -435,7 +436,11 @@ export default function AcrosetForm({
     e.preventDefault();
     if (saving) return;
     setSaving(true);
+    setSaved(false);
+    setStatus(null);
     const shortGuid = Guid.newGuid().toString().slice(0, 4);
+    let calculationPassed: boolean | undefined;
+    let calculationFailureMessage: string | undefined;
     // Run the simple retainer check one more time before saving anything.
     const current = validateRetainerMeasurement(
       form.retainerMeasured,
@@ -485,11 +490,8 @@ export default function AcrosetForm({
 
       const result = compute(input);
       setCalcResult(result);
-      setStatus(
-        result.ok
-          ? "✅ Calculation validated."
-          : result.message ?? "❌ Calculation failed."
-      );
+      calculationPassed = result.ok;
+      calculationFailureMessage = result.message;
 
       const ymdToIso = (ymd: string): string | null => {
         if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
@@ -566,10 +568,24 @@ export default function AcrosetForm({
       };
 
       await getSP().web.lists.getByTitle(listTitle).items.add(payload);
-      setStatus("✅ Saved run and uploaded CSVs.");
+      setStatus(
+        result.ok
+          ? "✅ Calculation passed and the run was saved successfully. You may now close this page."
+          : `⚠️ Run saved for review, but the calculation failed validation. No shim recommendation was generated. The run and CSV files were saved successfully, and you may now close this page. Reason: ${result.message ?? "Calculation failed."}`
+      );
+      setSaved(true);
+      setSaving(false);
     } catch (err: any) {
       console.error(err);
-      setStatus(`❌ Save failed: ${err?.message ?? err}`);
+      const saveReason = err?.message ?? err;
+      setStatus(
+        calculationPassed === false
+          ? `❌ The calculation failed validation and the run could not be saved. Do not close this page. Calculation reason: ${calculationFailureMessage ?? "Calculation failed."} Save reason: ${saveReason}`
+          : calculationPassed === true
+          ? `❌ Calculation passed, but the run could not be saved. Do not close this page. Correct the issue or retry submission. Reason: ${saveReason}`
+          : `❌ Save failed: ${saveReason}`
+      );
+      setSaving(false);
     }
   };
 
@@ -919,6 +935,7 @@ export default function AcrosetForm({
           className={styles.button}
           disabled={
             isLocalWorkbench ||
+            saved ||
             saving || // ⬅ prevent double clicks
             !form.location ||
             !form.group ||
@@ -928,14 +945,18 @@ export default function AcrosetForm({
             (measurementSetCount === 2 && !set2Valid)
           }
         >
-          {saving ? "Saving…" : "Calculate & Submit"}
+          {saved ? "Saved" : saving ? "Saving…" : "Calculate & Submit"}
         </button>
 
         {status && (
           <div
             role="status"
             className={
-              calcResult?.ok ? styles.statusValid : styles.statusInvalid
+              status.startsWith("✅")
+                ? styles.statusValid
+                : status.startsWith("⚠️")
+                ? styles.statusWarn
+                : styles.statusInvalid
             }
           >
             {status}
