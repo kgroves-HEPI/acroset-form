@@ -1,0 +1,8 @@
+node_modules/
+dist/
+data/measurements/*
+data/results/*
+output/*
+!data/measurements/.gitkeep
+!data/results/.gitkeep
+!output/.gitkeep
