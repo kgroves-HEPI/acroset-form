@@ -1,6 +1,7 @@
-import type { Bounds, Candidate, Metrics, Point } from "./types";
+import type { Metrics, Point, PointError, RegressionResult } from "./types";
 
 const EPSILON = 1e-12;
+export const IMPROVED_WINDOW_SIZE = 5;
 
 function fitLine(points: Point[]): { slope: number; intercept: number } | undefined {
   if (points.length < 2) return undefined;
@@ -19,10 +20,10 @@ function fitLine(points: Point[]): { slope: number; intercept: number } | undefi
   return { slope, intercept: yMean - slope * xMean };
 }
 
-function metrics(points: Point[], slope: number, intercept: number): Metrics {
-  const errors = points.map((point) => point.y - (slope * point.x + intercept));
-  const absoluteErrors = errors.map(Math.abs);
-  const squaredError = errors.reduce((sum, error) => sum + error ** 2, 0);
+export function calculateMetrics(points: Point[], slope: number, intercept: number): Metrics {
+  const residuals = points.map((point) => point.y - (slope * point.x + intercept));
+  const absoluteErrors = residuals.map(Math.abs);
+  const squaredError = residuals.reduce((sum, error) => sum + error ** 2, 0);
   const yMean = points.reduce((sum, point) => sum + point.y, 0) / points.length;
   const totalSquares = points.reduce((sum, point) => sum + (point.y - yMean) ** 2, 0);
   return {
@@ -33,101 +34,70 @@ function metrics(points: Point[], slope: number, intercept: number): Metrics {
   };
 }
 
-function validate(
+export function calculatePointErrors(
+  points: Point[],
   slope: number,
-  referenceTorque: number | undefined,
-  all: Metrics,
-  bounds: Bounds,
-): string[] {
-  const reasons: string[] = [];
-  if (bounds.minSlope !== undefined && slope < bounds.minSlope) reasons.push("slope below minimum");
-  if (bounds.maxSlope !== undefined && slope > bounds.maxSlope) reasons.push("slope above maximum");
-  if (
-    bounds.minReferenceTorque !== undefined &&
-    referenceTorque !== undefined &&
-    referenceTorque < bounds.minReferenceTorque
-  ) reasons.push("reference torque below minimum");
-  if (
-    bounds.maxReferenceTorque !== undefined &&
-    referenceTorque !== undefined &&
-    referenceTorque > bounds.maxReferenceTorque
-  ) reasons.push("reference torque above maximum");
-  if (bounds.maxAverageError !== undefined && all.averageError > bounds.maxAverageError) {
-    reasons.push("average error above limit");
-  }
-  if (bounds.maxPointError !== undefined && all.maxError > bounds.maxPointError) {
-    reasons.push("maximum error above limit");
-  }
-  return reasons;
+  intercept: number,
+  start: number,
+  end: number,
+): PointError[] {
+  return points.map((point, index) => {
+    const predicted = slope * point.x + intercept;
+    const residual = point.y - predicted;
+    return {
+      ...point,
+      predicted,
+      residual,
+      absoluteError: Math.abs(residual),
+      included: index >= start && index <= end,
+    };
+  });
 }
 
-export function generateCandidates(points: Point[], minimumPoints: number, bounds: Bounds): Candidate[] {
-  const candidates: Candidate[] = [];
-  const safeMinimum = Math.max(2, Math.min(minimumPoints, points.length));
-  for (let count = safeMinimum; count <= points.length; count += 1) {
-    for (let start = 0; start + count <= points.length; start += 1) {
-      const end = start + count - 1;
-      const fitPoints = points.slice(start, end + 1);
-      const fit = fitLine(fitPoints);
-      if (!fit) continue;
-      const referenceTorque = bounds.referenceX === undefined
-        ? undefined
-        : fit.slope * bounds.referenceX + fit.intercept;
-      const all = metrics(points, fit.slope, fit.intercept);
-      const reasons = validate(fit.slope, referenceTorque, all, bounds);
-      candidates.push({
-        start,
-        end,
-        count,
-        slope: fit.slope,
-        intercept: fit.intercept,
-        referenceTorque,
-        window: metrics(fitPoints, fit.slope, fit.intercept),
-        all,
-        accepted: reasons.length === 0,
-        reasons,
-      });
-    }
-  }
-  return candidates.sort((left, right) => compareCandidates(left, right, bounds));
+export function toShimPoints(points: Point[], retainerMeasuredValue: number): Point[] {
+  return points.map((point) => ({ ...point, x: point.x - retainerMeasuredValue }));
 }
 
-function compareCandidates(left: Candidate, right: Candidate, bounds: Bounds): number {
-  if (left.accepted !== right.accepted) return left.accepted ? -1 : 1;
-  const maxDifference = left.all.maxError - right.all.maxError;
-  if (Math.abs(maxDifference) > EPSILON) return maxDifference;
-  const averageDifference = left.all.averageError - right.all.averageError;
-  if (Math.abs(averageDifference) > EPSILON) return averageDifference;
-  if (left.count !== right.count) return right.count - left.count;
-  if (bounds.targetSlope !== undefined) {
-    const targetDifference = Math.abs(left.slope - bounds.targetSlope) - Math.abs(right.slope - bounds.targetSlope);
-    if (Math.abs(targetDifference) > EPSILON) return targetDifference;
+export function findBestFivePointRegression(
+  points: Point[],
+  preload: number,
+  shimUnit: string,
+): RegressionResult | undefined {
+  if (points.length < IMPROVED_WINDOW_SIZE) return undefined;
+  const candidates: RegressionResult[] = [];
+  for (let start = 0; start + IMPROVED_WINDOW_SIZE <= points.length; start += 1) {
+    const end = start + IMPROVED_WINDOW_SIZE - 1;
+    const window = points.slice(start, end + 1);
+    const fit = fitLine(window);
+    if (!fit) continue;
+    const shimValue = -fit.intercept / fit.slope - preload;
+    candidates.push({
+      start,
+      end,
+      count: IMPROVED_WINDOW_SIZE,
+      slope: fit.slope,
+      intercept: fit.intercept,
+      shimValue,
+      shimUnit,
+      shimTorque: fit.slope * shimValue + fit.intercept,
+      metrics: calculateMetrics(window, fit.slope, fit.intercept),
+      allMetrics: calculateMetrics(points, fit.slope, fit.intercept),
+      errors: calculatePointErrors(points, fit.slope, fit.intercept, start, end),
+    });
   }
-  if (
-    bounds.targetReferenceTorque !== undefined &&
-    left.referenceTorque !== undefined &&
-    right.referenceTorque !== undefined
-  ) {
-    return Math.abs(left.referenceTorque - bounds.targetReferenceTorque)
-      - Math.abs(right.referenceTorque - bounds.targetReferenceTorque);
-  }
-  return right.all.r2 - left.all.r2;
+  return candidates.sort(compareBestFit)[0];
 }
 
-export function currentRuleCandidate(points: Point[]): Candidate | undefined {
-  if (points.length < 5) return undefined;
-  const fitPoints = points.slice(2, points.length - 1);
-  const fit = fitLine(fitPoints);
-  if (!fit) return undefined;
-  return {
-    start: 2,
-    end: points.length - 2,
-    count: fitPoints.length,
-    slope: fit.slope,
-    intercept: fit.intercept,
-    window: metrics(fitPoints, fit.slope, fit.intercept),
-    all: metrics(points, fit.slope, fit.intercept),
-    accepted: true,
-    reasons: [],
-  };
+function compareBestFit(left: RegressionResult, right: RegressionResult): number {
+  const r2Difference = finiteR2(right.metrics.r2) - finiteR2(left.metrics.r2);
+  if (Math.abs(r2Difference) > EPSILON) return r2Difference;
+  const rmseDifference = left.metrics.rmse - right.metrics.rmse;
+  if (Math.abs(rmseDifference) > EPSILON) return rmseDifference;
+  const allMaxDifference = left.allMetrics.maxError - right.allMetrics.maxError;
+  if (Math.abs(allMaxDifference) > EPSILON) return allMaxDifference;
+  return left.start - right.start;
+}
+
+function finiteR2(value: number): number {
+  return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
 }

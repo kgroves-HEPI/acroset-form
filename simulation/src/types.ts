@@ -1,3 +1,5 @@
+export type RegressionKey = "set1" | "set2" | "combined";
+
 export interface Point {
   x: number;
   y: number;
@@ -13,18 +15,6 @@ export interface Dataset {
   points: Point[];
 }
 
-export interface Bounds {
-  minSlope?: number;
-  maxSlope?: number;
-  targetSlope?: number;
-  referenceX?: number;
-  minReferenceTorque?: number;
-  maxReferenceTorque?: number;
-  targetReferenceTorque?: number;
-  maxAverageError?: number;
-  maxPointError?: number;
-}
-
 export interface Metrics {
   averageError: number;
   maxError: number;
@@ -32,15 +22,51 @@ export interface Metrics {
   r2: number;
 }
 
-export interface Candidate {
+export interface PointError extends Point {
+  predicted: number;
+  residual: number;
+  absoluteError: number;
+  included: boolean;
+}
+
+export interface RegressionResult {
   start: number;
   end: number;
   count: number;
   slope: number;
   intercept: number;
-  referenceTorque?: number;
-  window: Metrics;
-  all: Metrics;
-  accepted: boolean;
-  reasons: string[];
+  shimValue?: number;
+  shimUnit: string;
+  shimTorque?: number;
+  metrics: Metrics;
+  allMetrics: Metrics;
+  errors: PointError[];
+  status?: string;
+  rejectReason?: string;
+}
+
+export interface HistoricalResult {
+  runId: string;
+  date: string;
+  mechanicName: string;
+  workOrder: string;
+  location: string;
+  units: string;
+  group: string;
+  model: string;
+  preload: number;
+  retainerMeasuredValue: number;
+  retainerMeasuredUnit: string;
+  calculationStatus: string;
+  chosenFit: string;
+  chosenShimValue?: number;
+  chosenShimUnit: string;
+  chosenShimTorque?: number;
+  regressions: Record<RegressionKey, RegressionResult>;
+}
+
+export interface HistoricalRun {
+  runId: string;
+  result: HistoricalResult;
+  datasets: Record<RegressionKey, Dataset>;
 }
