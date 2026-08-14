@@ -140,6 +140,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
         </div>
         <p class="method-copy">Stored regression and output values from the paired results CSV. The fit excludes the first two and final torque points.</p>
         <div id="historic-chart" class="chart"></div>
+        <div id="historic-distributions" class="distribution-grid"></div>
         <div id="historic-cluster-stats"></div>
         <div id="historic-selected" class="selected-output"></div>
         <div id="historic-summary"></div>
@@ -283,6 +284,7 @@ function render(): void {
   const improved = improvedRegressions(run);
   const clusterRuns = plottedRuns();
   const modelRuns = filteredRuns();
+  const distributionRuns = modelRuns.filter((modelRun) => !excludedRunIds.has(modelRun.runId));
   const excludedCount = modelRuns.filter((modelRun) => excludedRunIds.has(modelRun.runId)).length;
   const baseline = selectedModel === "all" ? undefined : baselineForRun(run);
   const improvedByRun = new Map(clusterRuns.map((clusterRun) => [clusterRun.runId, improvedRegressions(clusterRun)]));
@@ -321,6 +323,7 @@ function render(): void {
     "improved",
     baseline,
   );
+  renderHistoricDistributions(distributionRuns, run, baseline);
   renderShimClusterScorecard(
     "historic-cluster-stats",
     clusterRuns,
@@ -339,6 +342,132 @@ function render(): void {
   byId("improved-summary").innerHTML = renderRegressionSummary(improved);
   byId("historic-errors").innerHTML = renderErrorTable(historic, "Historic point errors");
   byId("improved-errors").innerHTML = renderErrorTable(proposed, "Proposed point errors");
+}
+
+function renderHistoricDistributions(
+  clusterRuns: HistoricalRun[],
+  run: HistoricalRun,
+  baseline: DisplayBaseline | undefined,
+): void {
+  const selectedResult = run.result.regressions[selectedRegression];
+  const distributions = [
+    {
+      label: "Torque",
+      unit: "ft-lb",
+      digits: 1,
+      values: clusterRuns.map((clusterRun) => calculateTorqueIntercept(clusterRun.result.regressions[selectedRegression])),
+      selectedValue: calculateTorqueIntercept(selectedResult),
+      targetMinimum: baseline?.torqueMinimum,
+      targetMaximum: baseline?.torqueMaximum,
+      targetValue: baseline?.torqueAverage,
+    },
+    {
+      label: "Shim pack",
+      unit: selectedResult.shimUnit || run.datasets.combined.unit,
+      digits: selectedUnitSystem === "metric" ? 3 : 5,
+      values: clusterRuns.map((clusterRun) => clusterRun.result.regressions[selectedRegression].shimValue),
+      selectedValue: selectedResult.shimValue,
+      targetMinimum: baseline?.shimMinimum,
+      targetMaximum: baseline?.shimMaximum,
+      targetValue: baseline?.shimAverage,
+    },
+    {
+      label: "Slope",
+      unit: "ft-lb/in",
+      digits: 1,
+      values: clusterRuns.map((clusterRun) => reportSlope(clusterRun.result.regressions[selectedRegression].slope)),
+      selectedValue: reportSlope(selectedResult.slope),
+      targetValue: baseline ? reportSlope(baseline.targetSlope) : undefined,
+    },
+  ];
+
+  byId("historic-distributions").innerHTML = distributions.map((distribution) => {
+    const values = distribution.values.filter((value): value is number => value !== undefined && Number.isFinite(value)) as number[];
+    return renderNormalDistribution(
+      distribution.label,
+      distribution.unit,
+      distribution.digits,
+      values,
+      distribution.selectedValue,
+      distribution.targetMinimum,
+      distribution.targetMaximum,
+      distribution.targetValue,
+    );
+  }).join("");
+}
+
+function renderNormalDistribution(
+  label: string,
+  unit: string,
+  digits: number,
+  values: number[],
+  selectedValue: number | undefined,
+  targetMinimum?: number,
+  targetMaximum?: number,
+  targetValue?: number,
+): string {
+  const statistics = distributionStatistics(values);
+  const width = 260;
+  const height = 146;
+  const padding = { left: 14, right: 14, top: 14, bottom: 28 };
+  const hasSpread = statistics.count > 1 && statistics.standardDeviation > 0;
+  if (!statistics.count) {
+    return `<article class="distribution-card"><div class="distribution-heading"><div><p class="section-label">${escapeHtml(label)}</p><h3>Normal distribution</h3></div><span>0 records</span></div><div class="distribution-empty">No valid outputs</div></article>`;
+  }
+
+  const scale = hasSpread ? statistics.standardDeviation : Math.max(Math.abs(statistics.average) * 0.02, 0.01);
+  const candidates = [
+    statistics.minimum,
+    statistics.maximum,
+    statistics.average - scale * 3.25,
+    statistics.average + scale * 3.25,
+    selectedValue,
+    targetMinimum,
+    targetMaximum,
+    targetValue,
+  ].filter((value): value is number => value !== undefined && Number.isFinite(value));
+  const domainMinimum = Math.min(...candidates);
+  const domainMaximum = Math.max(...candidates);
+  const domainPadding = (domainMaximum - domainMinimum || scale) * 0.06;
+  const xMinimum = domainMinimum - domainPadding;
+  const xMaximum = domainMaximum + domainPadding;
+  const sx = (value: number): number => padding.left + (value - xMinimum) / (xMaximum - xMinimum || 1) * (width - padding.left - padding.right);
+  const baselineY = height - padding.bottom;
+  const curveHeight = baselineY - padding.top;
+  const curvePoints = Array.from({ length: 81 }, (_, index) => {
+    const value = xMinimum + index / 80 * (xMaximum - xMinimum);
+    const density = hasSpread ? Math.exp(-0.5 * ((value - statistics.average) / statistics.standardDeviation) ** 2) : 0;
+    return `${sx(value)},${baselineY - density * curveHeight}`;
+  }).join(" ");
+  const sigmaLeft = sx(statistics.average - statistics.standardDeviation);
+  const sigmaRight = sx(statistics.average + statistics.standardDeviation);
+  const targetBand = targetMinimum !== undefined && targetMaximum !== undefined && Number.isFinite(targetMinimum) && Number.isFinite(targetMaximum)
+    ? `<rect class="distribution-target-band" x="${sx(targetMinimum)}" y="${padding.top}" width="${Math.max(0, sx(targetMaximum) - sx(targetMinimum))}" height="${curveHeight}"><title>Target range ${format(targetMinimum, digits)}&ndash;${format(targetMaximum, digits)} ${escapeHtml(unit)}</title></rect>`
+    : "";
+  const sigmaBand = hasSpread
+    ? `<rect class="distribution-sigma-band" x="${sigmaLeft}" y="${padding.top}" width="${sigmaRight - sigmaLeft}" height="${curveHeight}"><title>One standard deviation from the mean</title></rect>`
+    : "";
+  const selectedMarker = selectedValue !== undefined && Number.isFinite(selectedValue)
+    ? `<line class="distribution-selected-line" x1="${sx(selectedValue)}" y1="${padding.top}" x2="${sx(selectedValue)}" y2="${baselineY}"><title>Selected record ${format(selectedValue, digits)} ${escapeHtml(unit)}</title></line>`
+    : "";
+  const targetMarker = targetValue !== undefined && Number.isFinite(targetValue)
+    ? `<line class="distribution-target-line" x1="${sx(targetValue)}" y1="${padding.top}" x2="${sx(targetValue)}" y2="${baselineY}"><title>Target ${format(targetValue, digits)} ${escapeHtml(unit)}</title></line>`
+    : "";
+  const curve = hasSpread
+    ? `<polyline class="distribution-curve" points="${curvePoints}"/>`
+    : `<line class="distribution-spike" x1="${sx(statistics.average)}" y1="${padding.top}" x2="${sx(statistics.average)}" y2="${baselineY}"/>`;
+
+  return `<article class="distribution-card">
+    <div class="distribution-heading"><div><p class="section-label">${escapeHtml(label)}</p><h3>Normal distribution</h3></div><span>${statistics.count} record${statistics.count === 1 ? "" : "s"}</span></div>
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(label)} normal distribution for ${regressionLabels[selectedRegression]}">
+      ${targetBand}${sigmaBand}
+      <line class="distribution-axis" x1="${padding.left}" y1="${baselineY}" x2="${width - padding.right}" y2="${baselineY}"/>
+      ${curve}${targetMarker}${selectedMarker}
+      <text class="distribution-axis-label" x="${padding.left}" y="${height - 9}">${format(xMinimum, digits)}</text>
+      <text class="distribution-axis-label" x="${width - padding.right}" y="${height - 9}" text-anchor="end">${format(xMaximum, digits)}</text>
+    </svg>
+    <div class="distribution-stats"><span>Mean <strong>${format(statistics.average, digits)}</strong></span><span>&sigma; <strong>${format(statistics.standardDeviation, digits)}</strong></span><span>${escapeHtml(unit)}</span></div>
+  </article>`;
 }
 
 function renderRunSelector(): void {
